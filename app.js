@@ -1,20 +1,24 @@
 const app = document.getElementById("app");
 
-const RIGHT_INPUTS = [
-  { id: "leftShift", label: "L Shift", code: "ShiftLeft" },
-  { id: "rightShift", label: "R Shift", code: "ShiftRight" },
-  { id: "mouseLeft", label: "Mouse L", button: 0 },
-  { id: "mouseRight", label: "Mouse R", button: 2 },
+const INPUT_OPTIONS = [
+  { id: "leftShift", label: "L Shift", code: "ShiftLeft", side: "left", pair: "rightShift" },
+  { id: "rightShift", label: "R Shift", code: "ShiftRight", side: "right", pair: "leftShift" },
+  { id: "leftCtrl", label: "L Ctrl", code: "ControlLeft", side: "left", pair: "rightCtrl" },
+  { id: "rightCtrl", label: "R Ctrl", code: "ControlRight", side: "right", pair: "leftCtrl" },
+  { id: "leftAlt", label: "L Alt", code: "AltLeft", side: "left", pair: "rightAlt" },
+  { id: "rightAlt", label: "R Alt", code: "AltRight", side: "right", pair: "leftAlt" },
+  { id: "mouseLeft", label: "Mouse L", button: 0, side: "left", pair: "mouseRight" },
+  { id: "mouseRight", label: "Mouse R", button: 2, side: "right", pair: "mouseLeft" },
 ];
 
-const LEFT_INPUTS = [
-  { id: "space", label: "SPACE", code: "Space" },
-  { id: "mouseMiddle", label: "Mouse Middle", button: 1 },
-];
+const DEFAULT_INPUT_GROUPS = {
+  groupAKey1: "leftShift",
+  groupAKey2: "rightShift",
+  groupBKey1: "mouseLeft",
+  groupBKey2: "mouseRight",
+};
 
-const ALL_INPUTS = [...RIGHT_INPUTS, ...LEFT_INPUTS];
-
-const STORAGE_KEY = "moveThinkCustomPresetsV1";
+const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 
 const SYSTEM_PRESETS = {
@@ -23,30 +27,36 @@ const SYSTEM_PRESETS = {
     baseInterval: 1800,
     jitter: 300,
     responseWindow: 1800,
-    sequenceLength: 2,
+    pathLength: 18,
     redRate: 25,
-    poisonRate: 0,
-    rounds: 5,
+    reverseZones: 1,
+    nbackZones: 1,
+    abAlternation: 0,
+    ...DEFAULT_INPUT_GROUPS,
   },
   normal: {
     label: "Normal",
     baseInterval: 1500,
     jitter: 450,
     responseWindow: 1500,
-    sequenceLength: 3,
+    pathLength: 24,
     redRate: 30,
-    poisonRate: 10,
-    rounds: 6,
+    reverseZones: 2,
+    nbackZones: 1,
+    abAlternation: 0,
+    ...DEFAULT_INPUT_GROUPS,
   },
   hard: {
     label: "Hard",
     baseInterval: 1100,
     jitter: 550,
     responseWindow: 1100,
-    sequenceLength: 4,
+    pathLength: 30,
     redRate: 35,
-    poisonRate: 30,
-    rounds: 8,
+    reverseZones: 2,
+    nbackZones: 2,
+    abAlternation: 0,
+    ...DEFAULT_INPUT_GROUPS,
   },
 };
 
@@ -66,19 +76,20 @@ const state = {
   audioContext: null,
   pointerLockReleaseExpected: false,
   phase: "idle",
-  round: 1,
   score: 0,
   combo: 0,
-  boardPath: [],
-  nextRevealIndex: 0,
-  roundMemoryStartIndex: 0,
-  rightOnlyProgress: 0,
-  recallIndex: 0,
-  boardPosition: -1,
-  revealedCell: -1,
-  playerJumping: false,
-  completedCells: new Set(),
+  boardCells: [],
+  boardPosition: 0,
+  previousBoardPosition: 0,
+  playerStepping: false,
+  stepDirection: "",
+  visitedCells: new Set(),
+  activeHand: "left",
   currentStimulus: null,
+  stimulusId: 0,
+  responseTimer: null,
+  lastDisplayedInstruction: null,
+  lastDisplayedGroup: null,
   stimulusStartedAt: 0,
   timerStartedAt: 0,
   timerDuration: 0,
@@ -86,28 +97,48 @@ const state = {
   message: "Pick a preset, adjust the current values, then start.",
   messageTone: "",
   trials: [],
-  recallAttempts: [],
+  movementHistory: [],
   timers: new Set(),
   raf: null,
 };
 
 function cleanPreset(preset) {
-  return {
+  const cleaned = {
     label: preset.label,
     baseInterval: clampNumber(preset.baseInterval, 400, 4000, 1500),
     jitter: clampNumber(preset.jitter, 0, 2000, 450),
     responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
-    sequenceLength: clampNumber(preset.sequenceLength, 0, 8, 3),
+    pathLength: clampNumber(preset.pathLength, 8, 42, 24),
     redRate: clampNumber(preset.redRate, 0, 80, 30),
-    poisonRate: clampNumber(preset.poisonRate, 0, 80, 10),
-    rounds: clampNumber(preset.rounds, 1, 20, 6),
+    reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
+    nbackZones: clampNumber(preset.nbackZones, 0, 6, 1),
+    abAlternation: clampNumber(preset.abAlternation, 0, 1, 0),
+    groupAKey1: preset.groupAKey1,
+    groupAKey2: preset.groupAKey2,
+    groupBKey1: preset.groupBKey1,
+    groupBKey2: preset.groupBKey2,
   };
+  return { ...cleaned, ...cleanInputGroups(cleaned) };
 }
 
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function cleanInputGroups(settings) {
+  const keys = ["groupAKey1", "groupAKey2", "groupBKey1", "groupBKey2"];
+  const ids = keys.map((key) => settings[key]);
+  const validIds = new Set(INPUT_OPTIONS.map((input) => input.id));
+  const uniqueIds = new Set(ids);
+  if (ids.length !== uniqueIds.size || ids.some((id) => !validIds.has(id))) {
+    return { ...DEFAULT_INPUT_GROUPS };
+  }
+  return keys.reduce((groups, key) => {
+    groups[key] = settings[key];
+    return groups;
+  }, {});
 }
 
 function loadCustomPresets() {
@@ -162,19 +193,48 @@ function playSound(kind) {
   const now = context.currentTime;
   if (kind === "cue") {
     playTone(660, now, 0.07, "triangle", 0.42);
-  } else if (kind === "reveal") {
-    playTone(784, now, 0.08, "sine", 0.55);
-    playTone(988, now + 0.075, 0.09, "sine", 0.42);
+  } else if (kind === "step") {
+    playTone(784, now, 0.06, "square", 0.35);
+    playTone(988, now + 0.06, 0.07, "square", 0.28);
   } else if (kind === "success") {
     playTone(523, now, 0.07, "sine", 0.5);
     playTone(659, now + 0.065, 0.08, "sine", 0.42);
   } else if (kind === "error") {
     playTone(180, now, 0.16, "sawtooth", 0.38);
-  } else if (kind === "round") {
+  } else if (kind === "finish") {
     playTone(523, now, 0.08, "triangle", 0.45);
     playTone(659, now + 0.08, 0.08, "triangle", 0.42);
     playTone(784, now + 0.16, 0.12, "triangle", 0.4);
   }
+}
+
+function getSpeechVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const englishVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith("en"));
+  return (
+    englishVoices.find((voice) => /male|david|mark|daniel|george|alex/i.test(voice.name)) ||
+    englishVoices[0] ||
+    voices[0] ||
+    null
+  );
+}
+
+function speakHandCue(hand) {
+  if (!state.soundEnabled) return;
+  if (!("speechSynthesis" in window) || !window.SpeechSynthesisUtterance) {
+    playSound("cue");
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(hand === "left" ? "left hand" : "right hand");
+  const voice = getSpeechVoice();
+  if (voice) utterance.voice = voice;
+  utterance.lang = voice?.lang || "en-US";
+  utterance.rate = 0.92;
+  utterance.pitch = 0.82;
+  utterance.volume = Math.max(0, Math.min(1, state.soundVolume));
+  window.speechSynthesis.speak(utterance);
 }
 
 function allPresets() {
@@ -184,8 +244,17 @@ function allPresets() {
 function clearTimers() {
   for (const timer of state.timers) clearTimeout(timer);
   state.timers.clear();
+  state.responseTimer = null;
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   if (state.raf) cancelAnimationFrame(state.raf);
   state.raf = null;
+}
+
+function clearResponseTimer() {
+  if (!state.responseTimer) return;
+  clearTimeout(state.responseTimer);
+  state.timers.delete(state.responseTimer);
+  state.responseTimer = null;
 }
 
 function requestGamePointerLock() {
@@ -243,33 +312,46 @@ function setTimer(callback, delay) {
 }
 
 function randomRightInput() {
-  return RIGHT_INPUTS[Math.floor(Math.random() * RIGHT_INPUTS.length)].id;
-}
-
-function randomLeftInput() {
-  return LEFT_INPUTS[Math.floor(Math.random() * LEFT_INPUTS.length)].id;
+  const groups = getInputGroups();
+  const previousGroup = state.lastDisplayedGroup;
+  let nextGroup;
+  if (!previousGroup) {
+    nextGroup = Math.random() < 0.5 ? "A" : "B";
+  } else {
+    const oppositeGroup = previousGroup === "A" ? "B" : "A";
+    const alternateChance = 0.5 + state.settings.abAlternation * 0.5;
+    nextGroup = Math.random() < alternateChance ? oppositeGroup : previousGroup;
+  }
+  const inputs = groups[nextGroup];
+  return inputs[Math.floor(Math.random() * inputs.length)];
 }
 
 function randomDelay() {
-  const offset = Math.round(Math.random() * state.settings.jitter * 2 - state.settings.jitter);
-  return Math.max(250, state.settings.baseInterval + offset);
+  const extraDelay = Math.round(Math.random() * state.settings.jitter);
+  return Math.max(250, state.settings.baseInterval + extraDelay);
+}
+
+function randomInteger(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function invertInput(input) {
-  if (input === "leftShift") return "rightShift";
-  if (input === "rightShift") return "leftShift";
-  if (input === "mouseLeft") return "mouseRight";
-  if (input === "mouseRight") return "mouseLeft";
-  return input;
+  const option = INPUT_OPTIONS.find((item) => item.id === input);
+  if (!option) return input;
+  const configuredIds = getConfiguredInputIds();
+  if (configuredIds.includes(option.pair)) return option.pair;
+  const oppositeSide = option.side === "left" ? "right" : "left";
+  const fallback = getConfiguredInputs().find((item) => item.side === oppositeSide);
+  return fallback?.id || input;
 }
 
 function inputLabel(id) {
-  return ALL_INPUTS.find((item) => item.id === id)?.label || "";
+  return INPUT_OPTIONS.find((item) => item.id === id)?.label || "";
 }
 
 function inputVisual(id) {
-  if (id === "mouseLeft" || id === "mouseRight" || id === "mouseMiddle") {
-    const side = id === "mouseLeft" ? "left" : id === "mouseRight" ? "right" : "middle";
+  if (id === "mouseLeft" || id === "mouseRight") {
+    const side = id === "mouseLeft" ? "left" : "right";
     return `
       <span class="input-visual mouse-visual mouse-${side}" role="img" aria-label="${side} mouse button">
         <span class="mouse-button mouse-button-left"></span>
@@ -278,16 +360,36 @@ function inputVisual(id) {
       </span>
     `;
   }
-  return `<span class="input-visual key-visual ${id === "space" ? "space-key" : ""}">${inputLabel(id)}</span>`;
+  return `<span class="input-visual key-visual">${inputLabel(id)}</span>`;
 }
 
 function isRightInput(input) {
-  return RIGHT_INPUTS.some((item) => item.id === input);
+  return getConfiguredInputIds().includes(input);
 }
 
-function getEffectiveTarget(stimulus) {
-  if (!stimulus || stimulus.light === "red") return null;
-  return stimulus.poisoned ? invertInput(stimulus.displayKey) : stimulus.displayKey;
+function getInputGroups(settings = state.settings) {
+  const groups = cleanInputGroups(settings);
+  return {
+    A: [groups.groupAKey1, groups.groupAKey2],
+    B: [groups.groupBKey1, groups.groupBKey2],
+  };
+}
+
+function getConfiguredInputIds(settings = state.settings) {
+  const groups = getInputGroups(settings);
+  return [...groups.A, ...groups.B];
+}
+
+function getConfiguredInputs(settings = state.settings) {
+  const ids = getConfiguredInputIds(settings);
+  return ids.map((id) => INPUT_OPTIONS.find((input) => input.id === id)).filter(Boolean);
+}
+
+function inputGroup(id, settings = state.settings) {
+  const groups = getInputGroups(settings);
+  if (groups.A.includes(id)) return "A";
+  if (groups.B.includes(id)) return "B";
+  return null;
 }
 
 function setMessage(message, tone = "") {
@@ -304,6 +406,12 @@ function selectPreset(presetId) {
 }
 
 function updateSetting(key, value) {
+  if (key.startsWith("group")) {
+    state.settings[key] = value;
+    state.settings = cleanPreset(state.settings);
+    render();
+    return;
+  }
   state.settings[key] = Number(value);
 }
 
@@ -329,31 +437,81 @@ function startGame() {
   state.settings = cleanPreset(state.settings);
   state.screen = "game";
   state.phase = "waiting";
-  state.round = 1;
   state.score = 0;
   state.combo = 0;
-  state.boardPath = generateBoardPath(state.settings.rounds * state.settings.sequenceLength);
-  state.nextRevealIndex = 0;
-  state.roundMemoryStartIndex = 0;
-  state.rightOnlyProgress = 0;
-  state.recallIndex = 0;
-  state.boardPosition = -1;
-  state.revealedCell = -1;
-  state.playerJumping = false;
-  state.completedCells = new Set();
+  state.boardCells = generateBoardCells(state.settings);
+  state.boardPosition = 0;
+  state.previousBoardPosition = 0;
+  state.playerStepping = false;
+  state.stepDirection = "";
+  state.visitedCells = new Set([0]);
+  state.activeHand = getHandForPosition(0);
   state.currentStimulus = null;
+  state.stimulusId = 0;
+  state.responseTimer = null;
+  state.lastDisplayedInstruction = null;
+  state.lastDisplayedGroup = null;
   state.trials = [];
-  state.recallAttempts = [];
-  setMessage("Return to start and wait for the right-side cue.", "");
+  state.movementHistory = [];
+  setMessage("Ready... wait for the right-side cue.", "");
   render();
+  speakHandCue(state.activeHand);
   scheduleStimulus();
 }
 
-function generateBoardPath(length) {
-  return Array.from({ length }, () => randomLeftInput());
+function generateBoardCells(settings) {
+  const length = settings.pathLength;
+  const cols = Math.min(7, Math.max(5, Math.ceil(Math.sqrt(length + 4))));
+  const rows = Math.ceil(length / cols);
+  const cells = Array.from({ length }, (_, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const zCol = row % 2 === 0 ? col : cols - 1 - col;
+    const xStep = cols <= 1 ? 0 : 82 / (cols - 1);
+    const yStep = rows <= 1 ? 0 : 78 / (rows - 1);
+    const xWiggle = Math.sin(index * 1.7) * 2.8;
+    const yWiggle = Math.cos(index * 1.13) * 2.3;
+    return {
+      index,
+      type: "normal",
+      x: Math.max(5, Math.min(95, 9 + zCol * xStep + xWiggle)),
+      y: Math.max(7, Math.min(91, 10 + row * yStep + yWiggle)),
+    };
+  });
+
+  placeZones(cells, "reverse", settings.reverseZones, 2, 4);
+  placeZones(cells, "nback1", settings.nbackZones, 2, 3);
+  cells[0].type = "start";
+  cells[cells.length - 1].type = "finish";
+  return cells;
+}
+
+function placeZones(cells, type, count, minLength, maxLength) {
+  const occupied = new Set(cells.flatMap((cell) => (cell.type === "normal" ? [] : [cell.index])));
+  occupied.add(0);
+  occupied.add(cells.length - 1);
+
+  for (let zone = 0; zone < count; zone += 1) {
+    let placed = false;
+    for (let attempt = 0; attempt < 80 && !placed; attempt += 1) {
+      const length = randomInteger(minLength, maxLength);
+      const minStart = type === "nback1" ? 1 : 1;
+      const maxStart = cells.length - length - 1;
+      if (maxStart < minStart) break;
+      const start = randomInteger(minStart, maxStart);
+      const indexes = Array.from({ length }, (_, offset) => start + offset);
+      if (indexes.some((index) => occupied.has(index))) continue;
+      indexes.forEach((index) => {
+        cells[index].type = type;
+        occupied.add(index);
+      });
+      placed = true;
+    }
+  }
 }
 
 function scheduleStimulus() {
+  clearResponseTimer();
   state.phase = "waiting";
   state.currentStimulus = null;
   state.timerPercent = 0;
@@ -361,43 +519,89 @@ function scheduleStimulus() {
   setTimer(showStimulus, randomDelay());
 }
 
+function queueNextStimulus() {
+  const delay = randomDelay();
+  setTimer(showStimulus, delay);
+}
+
 function showStimulus() {
-  const light = Math.random() * 100 < state.settings.redRate ? "red" : "green";
-  const displayKey = randomRightInput();
-  const poisoned = Math.random() * 100 < state.settings.poisonRate;
+  clearResponseTimer();
+  const displayedInstruction = {
+    light: Math.random() * 100 < state.settings.redRate ? "red" : "green",
+    displayKey: randomRightInput(),
+  };
+  const rule = getCurrentRule();
+  const requiredInstruction = getRequiredInstruction(displayedInstruction, rule);
+  const stimulusId = state.stimulusId + 1;
+  state.stimulusId = stimulusId;
   state.phase = "rightStimulus";
   state.currentStimulus = {
-    light,
-    displayKey,
-    poisoned,
+    id: stimulusId,
+    displayedInstruction,
+    requiredInstruction,
+    rule,
     responded: false,
+    startPosition: state.boardPosition,
   };
   state.stimulusStartedAt = performance.now();
   startVisualTimer(state.settings.responseWindow);
   playSound("cue");
-  setMessage(
-    light === "green" ? "GO: press the target, then return to start." : "NO-GO: stay still and do not press.",
-    light === "green" ? "good" : "bad",
-  );
+  setMessage(stimulusMessage(state.currentStimulus), requiredInstruction.light === "green" ? "good" : "bad");
   render();
-  setTimer(() => {
-    if (state.phase !== "rightStimulus" || !state.currentStimulus || state.currentStimulus.responded) return;
-    if (state.currentStimulus.light === "red") {
-      finishRightTrial({
-        input: null,
-        result: "nogoSuccess",
-        success: true,
-        reactionTime: state.settings.responseWindow,
-      });
-    } else {
-      finishRightTrial({
-        input: null,
-        result: "miss",
-        success: false,
-        reactionTime: state.settings.responseWindow,
-      });
+  state.responseTimer = setTimer(() => {
+    if (
+      state.phase !== "rightStimulus" ||
+      !state.currentStimulus ||
+      state.currentStimulus.id !== stimulusId ||
+      state.currentStimulus.responded
+    ) {
+      return;
     }
+    state.responseTimer = null;
+    const required = state.currentStimulus.requiredInstruction;
+    finishRightTrial({
+      input: null,
+      result: required.light === "red" ? "nogoSuccess" : "miss",
+      success: required.light === "red",
+      reactionTime: state.settings.responseWindow,
+    });
   }, state.settings.responseWindow);
+}
+
+function getCurrentRule() {
+  return state.boardCells[state.boardPosition]?.type || "normal";
+}
+
+function getRequiredInstruction(displayedInstruction, rule) {
+  if (rule === "nback1") {
+    const previous = state.lastDisplayedInstruction || displayedInstruction;
+    return {
+      light: previous.light,
+      displayKey: previous.displayKey,
+      effectiveKey: previous.light === "green" ? previous.displayKey : null,
+      source: "previous",
+    };
+  }
+  if (displayedInstruction.light === "red") {
+    return { light: "red", displayKey: displayedInstruction.displayKey, effectiveKey: null, source: "current" };
+  }
+  return {
+    light: "green",
+    displayKey: displayedInstruction.displayKey,
+    effectiveKey: rule === "reverse" ? invertInput(displayedInstruction.displayKey) : displayedInstruction.displayKey,
+    source: "current",
+  };
+}
+
+function stimulusMessage(stimulus) {
+  const required = stimulus.requiredInstruction;
+  if (stimulus.rule === "nback1") {
+    if (required.light === "red") return "1-back: the previous cue was NO-GO. Do not press.";
+    return `1-back: press the previous cue, ${inputLabel(required.effectiveKey)}.`;
+  }
+  if (required.light === "red") return "NO-GO: stay still and do not press.";
+  if (stimulus.rule === "reverse") return "Reverse zone: press the opposite side.";
+  return "GO: press the target, then get ready.";
 }
 
 function startVisualTimer(duration) {
@@ -421,174 +625,124 @@ function updateTimerDom() {
 function finishRightTrial({ input, result, success, reactionTime }) {
   const stimulus = state.currentStimulus;
   if (!stimulus || stimulus.responded) return;
+  clearResponseTimer();
   stimulus.responded = true;
+  const fromPosition = state.boardPosition;
+
+  state.lastDisplayedInstruction = { ...stimulus.displayedInstruction };
+  state.lastDisplayedGroup = inputGroup(stimulus.displayedInstruction.displayKey);
+  if (success) {
+    state.score += stimulus.requiredInstruction.light === "red" ? 120 : 100;
+    if (stimulus.rule === "reverse" || stimulus.rule === "nback1") state.score += 20;
+    state.combo += 1;
+    playSound("success");
+    movePlayer(1);
+    setMessage(successMessage(stimulus), "good");
+  } else {
+    state.combo = 0;
+    playSound("error");
+    movePlayer(-1);
+    setMessage(errorMessage(result, stimulus), "bad");
+  }
+
   state.trials.push({
-    round: state.round,
-    boardIndex: state.nextRevealIndex,
-    light: stimulus.light,
-    displayKey: stimulus.displayKey,
-    effectiveKey: getEffectiveTarget(stimulus),
-    poisoned: stimulus.poisoned,
+    step: state.trials.length + 1,
+    rule: stimulus.rule,
+    fromPosition,
+    toPosition: state.boardPosition,
+    displayedLight: stimulus.displayedInstruction.light,
+    displayedKey: stimulus.displayedInstruction.displayKey,
+    displayedGroup: state.lastDisplayedGroup,
+    requiredLight: stimulus.requiredInstruction.light,
+    requiredKey: stimulus.requiredInstruction.effectiveKey,
     input,
     reactionTime: Math.round(reactionTime),
     result,
-    revealedBoardCell: success,
+    success,
   });
 
-  if (success) {
-    state.score += stimulus.light === "red" ? 120 : 100;
-    state.combo += 1;
-    advanceAfterRightSuccess();
-  } else {
-    playSound("error");
-    state.combo = 0;
-    setMessage(rightErrorMessage(result, stimulus), "bad");
-    state.phase = "rightFeedback";
-    render();
-    setTimer(scheduleStimulus, 650);
-  }
-}
-
-function isRightOnlyMode() {
-  return state.settings.sequenceLength === 0;
-}
-
-function advanceAfterRightSuccess() {
-  if (!isRightOnlyMode()) {
-    revealNextBoardCell();
-    return;
-  }
-  state.rightOnlyProgress += 1;
-  state.phase = "rightFeedback";
-  playSound("success");
-  setMessage("Right-side success. No memory board in this mode.", "good");
+  state.phase = "waiting";
+  state.currentStimulus = null;
+  state.timerPercent = 0;
+  setMessage("Ready... wait for the right-side cue.", "");
   render();
-  if (state.rightOnlyProgress >= state.settings.rounds) {
-    setTimer(finishSession, 650);
+  if (state.boardPosition >= state.boardCells.length - 1) {
+    playSound("finish");
+    setTimer(finishSession, 750);
   } else {
-    setTimer(scheduleStimulus, 650);
+    queueNextStimulus();
   }
 }
 
-function rightErrorMessage(result, stimulus) {
+function successMessage(stimulus) {
+  if (stimulus.requiredInstruction.light === "red") return "Correct NO-GO. Move forward one space.";
+  if (stimulus.rule === "nback1") return "Correct 1-back action. Move forward one space.";
+  if (stimulus.rule === "reverse") return "Correct reverse action. Move forward one space.";
+  return "Correct. Move forward one space.";
+}
+
+function errorMessage(result, stimulus) {
   if (result === "wrongGo") {
-    return "Wrong target. No board cell revealed.";
+    return stimulus.rule === "nback1"
+      ? "Wrong 1-back action. Move back one space."
+      : "Wrong target. Move back one space.";
   }
-  if (result === "falseAlarm") return "NO-GO error. No board cell revealed.";
-  if (result === "miss") return "Timeout. No board cell revealed.";
-  return "Error. This step does not advance.";
+  if (result === "falseAlarm") return "NO-GO error. Move back one space.";
+  if (result === "miss") return "Timeout. Move back one space.";
+  return "Error. Move back one space.";
 }
 
-function revealNextBoardCell() {
-  const key = state.boardPath[state.nextRevealIndex];
-  state.revealedCell = state.nextRevealIndex;
-  state.nextRevealIndex += 1;
-  state.phase = "revealMemoryCell";
-  playSound("reveal");
-  setMessage("Remember the lit cell. It will be covered again.", "good");
-  render();
+function movePlayer(delta) {
+  const from = state.boardPosition;
+  const to = Math.max(0, Math.min(state.boardCells.length - 1, from + delta));
+  const fromHand = getHandForPosition(from);
+  const toHand = getHandForPosition(to);
+  state.previousBoardPosition = from;
+  state.boardPosition = to;
+  state.activeHand = toHand;
+  state.stepDirection = delta > 0 ? "forward" : "back";
+  state.visitedCells.add(to);
+  state.movementHistory.push({ from, to, delta, time: Date.now() });
+  triggerPlayerStep();
+  if (to !== from) playSound("step");
+  if (to !== from && fromHand !== toHand) speakHandCue(toHand);
+}
+
+function getHandForPosition(position) {
+  const switchIndex = Math.floor(state.boardCells.length / 2);
+  return position >= switchIndex ? "right" : "left";
+}
+
+function triggerPlayerStep() {
+  state.playerStepping = true;
   setTimer(() => {
-    state.revealedCell = -1;
-    const revealedThisRound = state.nextRevealIndex - state.roundMemoryStartIndex;
-    if (revealedThisRound >= state.settings.sequenceLength) {
-      startRecall();
-    } else {
-      scheduleStimulus();
-    }
-  }, 850);
-}
-
-function startRecall() {
-  state.phase = "memoryRecall";
-  state.recallIndex = 0;
-  setMessage("Memory test: the current cell is highlighted, but the key stays hidden.", "");
-  render();
+    state.playerStepping = false;
+    state.stepDirection = "";
+    if (state.screen === "game") render();
+  }, 360);
 }
 
 function handleGameInput(input) {
-  if (state.screen !== "game") return;
-  if (state.phase === "rightStimulus") {
-    if (!isRightInput(input)) return;
-    handleRightInput(input);
-    return;
-  }
-  if (state.phase === "memoryRecall") handleRecallInput(input);
+  if (state.screen !== "game" || state.phase !== "rightStimulus") return;
+  if (!isRightInput(input)) return;
+  handleRightInput(input);
 }
 
 function handleRightInput(input) {
   const stimulus = state.currentStimulus;
   if (!stimulus || stimulus.responded) return;
   const reactionTime = performance.now() - state.stimulusStartedAt;
-  if (stimulus.light === "red") {
+  const required = stimulus.requiredInstruction;
+  if (required.light === "red") {
     finishRightTrial({ input, result: "falseAlarm", success: false, reactionTime });
     return;
   }
-  const target = getEffectiveTarget(stimulus);
   finishRightTrial({
     input,
-    result: input === target ? "goSuccess" : "wrongGo",
-    success: input === target,
+    result: input === required.effectiveKey ? "goSuccess" : "wrongGo",
+    success: input === required.effectiveKey,
     reactionTime,
   });
-}
-
-function handleRecallInput(input) {
-  const boardIndex = state.roundMemoryStartIndex + state.recallIndex;
-  const expected = state.boardPath[boardIndex];
-  const correct = input === expected;
-  state.recallAttempts.push({
-    round: state.round,
-    boardIndex,
-    expected,
-    input,
-    correct,
-    time: Date.now(),
-  });
-  if (!correct) {
-    state.combo = 0;
-    playSound("error");
-    setMessage("Wrong memory input. Stay on this cell and try again.", "bad");
-    render();
-    return;
-  }
-
-  state.score += 140;
-  state.combo += 1;
-  playSound("success");
-  state.boardPosition = boardIndex;
-  triggerPlayerJump();
-  state.completedCells.add(boardIndex);
-  state.recallIndex += 1;
-  if (state.recallIndex >= state.settings.sequenceLength) {
-    playSound("round");
-    setMessage("Round complete. Return to start for the next round.", "good");
-    state.phase = "roundComplete";
-    render();
-    setTimer(nextRound, 900);
-  } else {
-    setMessage(`Correct. Continue to cell ${state.recallIndex + 1} of this round.`, "good");
-    render();
-  }
-}
-
-function nextRound() {
-  if (state.round >= state.settings.rounds) {
-    finishSession();
-    return;
-  }
-  state.round += 1;
-  state.roundMemoryStartIndex = state.nextRevealIndex;
-  state.recallIndex = 0;
-  state.revealedCell = -1;
-  scheduleStimulus();
-}
-
-function triggerPlayerJump() {
-  state.playerJumping = true;
-  setTimer(() => {
-    state.playerJumping = false;
-    if (state.screen === "game") render();
-  }, 360);
 }
 
 function finishSession() {
@@ -611,9 +765,10 @@ function restart() {
 }
 
 function getMetrics() {
-  const goTrials = state.trials.filter((trial) => trial.light === "green");
+  const goTrials = state.trials.filter((trial) => trial.requiredLight === "green");
   const goHits = goTrials.filter((trial) => trial.result === "goSuccess").length;
-  const noGoErrors = state.trials.filter((trial) => trial.result === "falseAlarm").length;
+  const noGoTrials = state.trials.filter((trial) => trial.requiredLight === "red");
+  const noGoErrors = noGoTrials.filter((trial) => trial.result === "falseAlarm").length;
   const goReactionTimes = goTrials
     .filter((trial) => trial.result === "goSuccess")
     .map((trial) => trial.reactionTime);
@@ -621,16 +776,11 @@ function getMetrics() {
     goReactionTimes.length === 0
       ? 0
       : Math.round(goReactionTimes.reduce((sum, value) => sum + value, 0) / goReactionTimes.length);
-  const recallCorrect = state.recallAttempts.filter((attempt) => attempt.correct).length;
-  const recallAccuracy =
-    state.recallAttempts.length === 0
-      ? 0
-      : Math.round((recallCorrect / state.recallAttempts.length) * 100);
-  const poisonErrors = state.trials.filter(
-    (trial) => trial.poisoned && ["wrongGo", "falseAlarm", "miss"].includes(trial.result),
-  ).length;
+  const reverseErrors = state.trials.filter((trial) => trial.rule === "reverse" && !trial.success).length;
+  const nbackErrors = state.trials.filter((trial) => trial.rule === "nback1" && !trial.success).length;
   const hitRate = goTrials.length === 0 ? 0 : Math.round((goHits / goTrials.length) * 100);
-  return { hitRate, noGoErrors, avgRt, recallAccuracy, poisonErrors };
+  const progress = `${state.boardPosition + 1}/${state.boardCells.length}`;
+  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress };
 }
 
 function renderConfig() {
@@ -644,7 +794,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">Preset values fill the current editor. You can change any number and save three custom presets.</p>
+            <p class="subtitle">V2 forest route training: right-side cues move the explorer forward or backward across special rule zones.</p>
           </div>
         </div>
 
@@ -675,10 +825,24 @@ function renderConfig() {
             ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
             ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
             ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
-            ${numberField("sequenceLength", "Memory sequence", s.sequenceLength, 0, 8, 1)}
+            ${numberField("pathLength", "Path length", s.pathLength, 8, 42, 1)}
             ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
-            ${numberField("poisonRate", "Poison reversal %", s.poisonRate, 0, 80, 5)}
-            ${numberField("rounds", "Rounds", s.rounds, 1, 20, 1)}
+            ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
+            ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
+            ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+          </div>
+        </div>
+
+        <div class="current-preset input-groups-panel">
+          <div class="panel-header">
+            <h2>Input Groups</h2>
+            <span>A/B group selection for right-side cues</span>
+          </div>
+          <div class="config-grid">
+            ${selectField("groupAKey1", "Group A key 1", s.groupAKey1)}
+            ${selectField("groupAKey2", "Group A key 2", s.groupAKey2)}
+            ${selectField("groupBKey1", "Group B key 1", s.groupBKey1)}
+            ${selectField("groupBKey2", "Group B key 2", s.groupBKey2)}
           </div>
         </div>
 
@@ -704,7 +868,9 @@ function renderConfig() {
     button.addEventListener("click", () => selectPreset(button.dataset.preset));
   });
   document.querySelectorAll("[data-setting]").forEach((input) => {
-    input.addEventListener("input", () => updateSetting(input.dataset.setting, input.value));
+    const listener = () => updateSetting(input.dataset.setting, input.value);
+    input.addEventListener("input", listener);
+    input.addEventListener("change", listener);
   });
   document.getElementById("soundToggle").addEventListener("click", () => {
     updateSoundSetting("soundEnabled", !state.soundEnabled);
@@ -713,7 +879,7 @@ function renderConfig() {
   document.getElementById("soundVolume").addEventListener("input", (event) => {
     updateSoundSetting("soundVolume", event.target.value);
   });
-  document.getElementById("soundTestBtn").addEventListener("click", () => playSound("reveal"));
+  document.getElementById("soundTestBtn").addEventListener("click", () => playSound("success"));
   document.getElementById("savePresetBtn").addEventListener("click", saveCurrentPreset);
   document.getElementById("startBtn").addEventListener("click", startGame);
 }
@@ -727,10 +893,25 @@ function numberField(key, label, value, min, max, step) {
   `;
 }
 
+function selectField(key, label, value) {
+  const selectedIds = new Set(getConfiguredInputIds().filter((id) => id !== value));
+  return `
+    <div class="config-card field">
+      <label for="${key}">${label}</label>
+      <select id="${key}" data-setting="${key}">
+        ${INPUT_OPTIONS.map(
+          (input) =>
+            `<option value="${input.id}" ${input.id === value ? "selected" : ""} ${selectedIds.has(input.id) ? "disabled" : ""}>${input.label}</option>`,
+        ).join("")}
+      </select>
+    </div>
+  `;
+}
+
 function renderGame() {
-  const poisoned = state.currentStimulus?.poisoned && state.phase === "rightStimulus";
+  const rule = getCurrentRule();
   app.innerHTML = `
-    <section class="screen game-screen ${poisoned ? "poisoned" : ""}">
+    <section class="screen game-screen rule-${rule}">
       ${renderHud()}
       <div class="playfield">
         ${renderBoard()}
@@ -742,17 +923,14 @@ function renderGame() {
 }
 
 function renderHud() {
-  const revealedThisRound = isRightOnlyMode()
-    ? state.rightOnlyProgress
-    : Math.min(state.settings.sequenceLength, state.nextRevealIndex - state.roundMemoryStartIndex);
   return `
     <header class="hud">
-      ${hudItem("Round", isRightOnlyMode() ? `${state.rightOnlyProgress}/${state.settings.rounds}` : `${state.round}/${state.settings.rounds}`)}
+      ${hudItem("Position", `${state.boardPosition + 1}/${state.boardCells.length}`)}
       ${hudItem("Score", state.score)}
       ${hudItem("Combo", state.combo)}
-      ${hudItem(isRightOnlyMode() ? "Right" : "Memory", isRightOnlyMode() ? `${revealedThisRound}/${state.settings.rounds}` : `${revealedThisRound}/${state.settings.sequenceLength}`)}
+      ${hudItem("Rule", ruleLabel(getCurrentRule()))}
       ${hudItem("Phase", phaseLabel())}
-      ${hudItem("Poison", state.currentStimulus?.poisoned && state.phase === "rightStimulus" ? "Reverse" : "Off")}
+      ${renderHandHud()}
     </header>
   `;
 }
@@ -768,93 +946,84 @@ function hudItem(label, value) {
 
 function phaseLabel() {
   const labels = {
-    waiting: "Return",
+    waiting: "Ready",
     rightStimulus: "Right",
-    rightFeedback: "Feedback",
-    revealMemoryCell: "Reveal",
-    memoryRecall: "Memory",
-    roundComplete: "Done",
   };
   return labels[state.phase] || "Ready";
 }
 
-function renderBoard() {
-  if (isRightOnlyMode()) {
-    return `
-      <section class="board-panel pixel-board-panel">
-        <div class="panel-header">
-          <h2>Right-Side Mode</h2>
-          <span>No memory board</span>
-        </div>
-        <div class="pixel-stage right-only-stage">
-          <div class="pixel-cloud cloud-a"></div>
-          <div class="pixel-cloud cloud-b"></div>
-          <div class="right-only-card">
-            <strong>GO / NO-GO ONLY</strong>
-            <span>Complete ${state.settings.rounds} right-side successes.</span>
-          </div>
-          <div class="pixel-ground"></div>
-        </div>
-        <div class="message-bar ${state.messageTone}">${state.message}</div>
-      </section>
-    `;
-  }
-  const visibleCells = getVisibleBoardCells();
-  const cells = visibleCells.map(({ key, index }) => {
-    const isRevealed = state.revealedCell === index;
-    const currentRecallIndex = state.roundMemoryStartIndex + state.recallIndex;
-    const isCurrent = state.phase === "memoryRecall" && currentRecallIndex === index;
-    const isCompleted = state.completedCells.has(index);
-    const isFuture = index >= state.nextRevealIndex;
-    const showKey = isRevealed;
-    return `
-      <div class="cell pixel-brick ${isRevealed ? "revealed" : ""} ${isCurrent ? "current" : ""} ${isCompleted ? "completed" : ""} ${isFuture ? "future" : ""}">
-        <div class="cell-index">${index + 1}</div>
-        <div class="cell-key">${showKey ? inputVisual(key) : isCompleted ? '<span class="pixel-coin"></span>' : "?"}</div>
-        ${state.boardPosition === index ? `<div class="player ${state.playerJumping ? "jump" : ""}"><span></span></div>` : ""}
-      </div>
-    `;
-  }).join("");
+function ruleLabel(rule) {
+  if (rule === "reverse") return "Reverse";
+  if (rule === "nback1") return "1-back";
+  if (rule === "finish") return "Finish";
+  return "Normal";
+}
+
+function renderHandHud() {
+  const hand = state.activeHand || getHandForPosition(state.boardPosition);
   return `
-    <section class="board-panel pixel-board-panel">
-      <div class="panel-header">
-        <h2>Pixel Run</h2>
-        <span>${Math.max(0, state.boardPosition + 1)}/${state.boardPath.length} steps</span>
+    <div class="hud-item hand-hud">
+      <div class="hud-label">Hand</div>
+      <div class="hand-toggle" aria-label="Current hand">
+        <span class="hand-side ${hand === "left" ? "active" : ""}">Left</span>
+        <span class="hand-side ${hand === "right" ? "active" : ""}">Right</span>
       </div>
-      <div class="pixel-stage">
-        <div class="pixel-cloud cloud-a"></div>
-        <div class="pixel-cloud cloud-b"></div>
-        <div class="board">${cells}</div>
-        <div class="pixel-ground"></div>
+    </div>
+  `;
+}
+
+function renderBoard() {
+  const pathPoints = state.boardCells.map((cell) => `${cell.x},${cell.y}`).join(" ");
+  const cells = state.boardCells
+    .map((cell) => {
+      const isCurrent = state.boardPosition === cell.index;
+      const isVisited = state.visitedCells.has(cell.index);
+      return `
+        <div class="trail-cell ${cell.type} ${isCurrent ? "current" : ""} ${isVisited ? "visited" : ""}" style="--x:${cell.x}%; --y:${cell.y}%;">
+          <span class="trail-index">${cell.index + 1}</span>
+          <span class="trail-label">${cellLabel(cell)}</span>
+          ${isCurrent ? renderPlayer() : ""}
+        </div>
+      `;
+    })
+    .join("");
+  return `
+    <section class="board-panel forest-board-panel">
+      <div class="panel-header">
+        <h2>Forest Route</h2>
+        <span>${state.boardPosition + 1}/${state.boardCells.length} spaces</span>
+      </div>
+      <div class="forest-stage">
+        <div class="forest-canopy canopy-a"></div>
+        <div class="forest-canopy canopy-b"></div>
+        <div class="forest-canopy canopy-c"></div>
+        <svg class="route-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="${pathPoints}" pathLength="1"></polyline>
+        </svg>
+        <div class="forest-map">${cells}</div>
       </div>
       <div class="message-bar ${state.messageTone}">${state.message}</div>
     </section>
   `;
 }
 
-function getVisibleBoardCells() {
-  const visibleCount = 9;
-  if (state.boardPath.length <= visibleCount) {
-    return state.boardPath.map((key, index) => ({ key, index }));
-  }
-  const currentRecallIndex = state.roundMemoryStartIndex + state.recallIndex;
-  let focusIndex = Math.max(0, state.boardPosition);
-  if (state.revealedCell >= 0) focusIndex = state.revealedCell;
-  else if (state.phase === "memoryRecall") focusIndex = currentRecallIndex;
-  else if (state.boardPosition < 0) focusIndex = state.nextRevealIndex;
+function cellLabel(cell) {
+  if (cell.type === "start") return "START";
+  if (cell.type === "finish") return "END";
+  if (cell.type === "reverse") return "REV";
+  if (cell.type === "nback1") return "1B";
+  return "";
+}
 
-  let start = Math.max(0, focusIndex - 2);
-  start = Math.min(start, state.boardPath.length - visibleCount);
-  return state.boardPath.slice(start, start + visibleCount).map((key, offset) => ({
-    key,
-    index: start + offset,
-  }));
+function renderPlayer() {
+  return `<div class="trail-player ${state.playerStepping ? `step-${state.stepDirection}` : ""}"><span></span></div>`;
 }
 
 function renderStimulus() {
   const stimulus = state.currentStimulus;
   const isActive = state.phase === "rightStimulus";
-  const light = isActive ? stimulus.light : "green";
+  const displayed = isActive ? stimulus.displayedInstruction : null;
+  const light = displayed?.light || "green";
   const targetContent = getTargetContent();
   return `
     <section class="stimulus-panel">
@@ -865,13 +1034,13 @@ function renderStimulus() {
       <div class="stimulus-main">
         <div class="traffic ${light === "red" ? "red" : ""}">${isActive ? (light === "red" ? "NO-GO" : "GO") : "READY"}</div>
         <div class="target-key ${isActive ? "" : "wait"}">${targetContent}</div>
-        <div class="poison-note">${isActive && stimulus.poisoned ? "Purple border: left/right inputs are reversed" : ""}</div>
+        <div class="poison-note">${ruleNote(stimulus)}</div>
         <div class="timer"><div class="timer-fill" style="width:${state.timerPercent}%"></div></div>
       </div>
       <div class="controls-strip">
-        ${RIGHT_INPUTS.map(
+        ${getConfiguredInputs().map(
           (input) =>
-            `<div class="key-chip ${isActive && stimulus.displayKey === input.id ? "active" : ""}">${inputVisual(input.id)}</div>`,
+            `<div class="key-chip ${isActive && displayed?.displayKey === input.id ? "active" : ""}">${inputVisual(input.id)}</div>`,
         ).join("")}
       </div>
     </section>
@@ -879,13 +1048,20 @@ function renderStimulus() {
 }
 
 function getTargetContent() {
-  if (state.phase === "waiting") return "Return";
-  if (state.phase === "rightFeedback") return "No reveal";
-  if (state.phase === "revealMemoryCell") return "Remember";
-  if (state.phase === "memoryRecall") return "Hidden";
-  if (state.phase === "roundComplete") return "Done";
+  if (state.phase === "waiting") return "Ready...";
   if (!state.currentStimulus) return "Ready";
-  return inputVisual(state.currentStimulus.displayKey);
+  return inputVisual(state.currentStimulus.displayedInstruction.displayKey);
+}
+
+function ruleNote(stimulus) {
+  if (!stimulus || state.phase !== "rightStimulus") return "";
+  if (stimulus.rule === "reverse") return "Purple zone: green targets are left/right reversed";
+  if (stimulus.rule === "nback1") {
+    const required = stimulus.requiredInstruction;
+    if (required.light === "red") return "Blue zone: do the previous cue, which was NO-GO";
+    return `Blue zone: do the previous cue, ${inputLabel(required.effectiveKey)}`;
+  }
+  return "";
 }
 
 function renderSummary() {
@@ -895,14 +1071,15 @@ function renderSummary() {
       <div class="summary-shell">
         <div>
           <h1>Training Complete</h1>
-          <p class="subtitle">Right-side errors did not reveal cells. Memory errors did not move the player.</p>
+          <p class="subtitle">Right-side successes moved forward. Errors and missed green cues moved backward.</p>
         </div>
         <div class="summary-grid">
+          ${metricCard("Progress", metrics.progress)}
           ${metricCard("Hit rate", `${metrics.hitRate}%`)}
           ${metricCard("No-go errors", metrics.noGoErrors)}
           ${metricCard("Avg RT", `${metrics.avgRt}ms`)}
-          ${metricCard("Memory accuracy", `${metrics.recallAccuracy}%`)}
-          ${metricCard("Reverse errors", metrics.poisonErrors)}
+          ${metricCard("Reverse errors", metrics.reverseErrors)}
+          ${metricCard("1-back errors", metrics.nbackErrors)}
         </div>
         <div class="actions">
           <p class="safety">Final score ${state.score}. Adjust or save presets before another run.</p>
@@ -936,7 +1113,7 @@ window.addEventListener("keydown", (event) => {
     exitGame();
     return;
   }
-  const match = ALL_INPUTS.find((input) => input.code === event.code);
+  const match = getConfiguredInputs().find((input) => input.code === event.code);
   if (!match) return;
   event.preventDefault();
   handleGameInput(match.id);
@@ -944,14 +1121,10 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("mousedown", (event) => {
   if (state.screen !== "game") return;
-  const match = ALL_INPUTS.find((input) => input.button === event.button);
+  const match = getConfiguredInputs().find((input) => input.button === event.button);
   if (!match) return;
   event.preventDefault();
   handleGameInput(match.id);
-});
-
-window.addEventListener("auxclick", (event) => {
-  if (state.screen === "game" && event.button === 1) event.preventDefault();
 });
 
 window.addEventListener("contextmenu", (event) => {
