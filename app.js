@@ -18,6 +18,8 @@ const DEFAULT_INPUT_GROUPS = {
   groupBKey2: "mouseRight",
 };
 
+const ROUTE_PAGE_SIZE = 42;
+const MAX_PATH_LENGTH = 420;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 
@@ -108,7 +110,7 @@ function cleanPreset(preset) {
     baseInterval: clampNumber(preset.baseInterval, 400, 4000, 1500),
     jitter: clampNumber(preset.jitter, 0, 2000, 450),
     responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
-    pathLength: clampNumber(preset.pathLength, 8, 42, 24),
+    pathLength: clampNumber(preset.pathLength, 8, MAX_PATH_LENGTH, 24),
     redRate: clampNumber(preset.redRate, 0, 80, 30),
     reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
     nbackZones: clampNumber(preset.nbackZones, 0, 6, 1),
@@ -461,23 +463,7 @@ function startGame() {
 
 function generateBoardCells(settings) {
   const length = settings.pathLength;
-  const cols = Math.min(7, Math.max(5, Math.ceil(Math.sqrt(length + 4))));
-  const rows = Math.ceil(length / cols);
-  const cells = Array.from({ length }, (_, index) => {
-    const row = Math.floor(index / cols);
-    const col = index % cols;
-    const zCol = row % 2 === 0 ? col : cols - 1 - col;
-    const xStep = cols <= 1 ? 0 : 82 / (cols - 1);
-    const yStep = rows <= 1 ? 0 : 78 / (rows - 1);
-    const xWiggle = Math.sin(index * 1.7) * 2.8;
-    const yWiggle = Math.cos(index * 1.13) * 2.3;
-    return {
-      index,
-      type: "normal",
-      x: Math.max(5, Math.min(95, 9 + zCol * xStep + xWiggle)),
-      y: Math.max(7, Math.min(91, 10 + row * yStep + yWiggle)),
-    };
-  });
+  const cells = Array.from({ length }, (_, index) => ({ index, type: "normal" }));
 
   placeZones(cells, "reverse", settings.reverseZones, 2, 4);
   placeZones(cells, "nback1", settings.nbackZones, 2, 3);
@@ -825,7 +811,7 @@ function renderConfig() {
             ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
             ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
             ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
-            ${numberField("pathLength", "Path length", s.pathLength, 8, 42, 1)}
+            ${numberField("pathLength", "Path length", s.pathLength, 8, MAX_PATH_LENGTH, 1)}
             ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
             ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
             ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
@@ -973,8 +959,9 @@ function renderHandHud() {
 }
 
 function renderBoard() {
-  const pathPoints = state.boardCells.map((cell) => `${cell.x},${cell.y}`).join(" ");
-  const cells = state.boardCells
+  const page = getRoutePage();
+  const pathPoints = page.cells.map((cell) => `${cell.x},${cell.y}`).join(" ");
+  const cells = page.cells
     .map((cell) => {
       const isCurrent = state.boardPosition === cell.index;
       const isVisited = state.visitedCells.has(cell.index);
@@ -991,7 +978,7 @@ function renderBoard() {
     <section class="board-panel forest-board-panel">
       <div class="panel-header">
         <h2>Forest Route</h2>
-        <span>${state.boardPosition + 1}/${state.boardCells.length} spaces</span>
+        <span>${state.boardPosition + 1}/${state.boardCells.length} spaces | Page ${page.currentPage}/${page.totalPages}</span>
       </div>
       <div class="forest-stage">
         <div class="forest-canopy canopy-a"></div>
@@ -1005,6 +992,37 @@ function renderBoard() {
       <div class="message-bar ${state.messageTone}">${state.message}</div>
     </section>
   `;
+}
+
+function getRoutePage(position = state.boardPosition) {
+  const total = state.boardCells.length;
+  const pageStart = Math.floor(position / ROUTE_PAGE_SIZE) * ROUTE_PAGE_SIZE;
+  const pageEnd = Math.min(total, pageStart + ROUTE_PAGE_SIZE);
+  const visibleCount = pageEnd - pageStart;
+  return {
+    currentPage: Math.floor(pageStart / ROUTE_PAGE_SIZE) + 1,
+    totalPages: Math.max(1, Math.ceil(total / ROUTE_PAGE_SIZE)),
+    cells: state.boardCells.slice(pageStart, pageEnd).map((cell, localIndex) => ({
+      ...cell,
+      ...getRouteCellPosition(localIndex, visibleCount),
+    })),
+  };
+}
+
+function getRouteCellPosition(localIndex, visibleCount) {
+  const cols = Math.min(7, Math.max(5, Math.ceil(Math.sqrt(visibleCount + 4))));
+  const rows = Math.ceil(visibleCount / cols);
+  const row = Math.floor(localIndex / cols);
+  const col = localIndex % cols;
+  const zCol = row % 2 === 0 ? col : cols - 1 - col;
+  const xStep = cols <= 1 ? 0 : 82 / (cols - 1);
+  const yStep = rows <= 1 ? 0 : 78 / (rows - 1);
+  const xWiggle = Math.sin(localIndex * 1.7) * 2.8;
+  const yWiggle = Math.cos(localIndex * 1.13) * 2.3;
+  return {
+    x: Math.max(5, Math.min(95, 9 + zCol * xStep + xWiggle)),
+    y: Math.max(7, Math.min(91, 10 + row * yStep + yWiggle)),
+  };
 }
 
 function cellLabel(cell) {

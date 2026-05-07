@@ -12,6 +12,7 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 - On a correct action, the pixel explorer moves forward one space.
 - On a wrong action or missed green GO cue, the explorer moves back one space.
 - The explorer cannot move before the start.
+- Routes can be longer than one screen. The board shows up to 42 spaces at once, then switches to the next page when the explorer reaches space 43, 85, and so on.
 - The session ends when the explorer reaches the finish space.
 - The first half of the route is marked as left-hand practice, and the second half is marked as right-hand practice.
 - The HUD highlights the current hand. The browser voice says "left hand" at the start and "right hand" when crossing the halfway point.
@@ -33,7 +34,7 @@ Right-side GO / NO-GO:
 - `Cue interval ms`: minimum delay after the previous cue is resolved before the next cue appears.
 - `Random jitter ms`: extra random delay added to the cue interval. For example, `1500` plus `500` means the next cue appears after `1500-2000ms`.
 - `Response window ms`: time allowed for the cue.
-- `Path length`: number of route spaces from start to finish.
+- `Path length`: number of route spaces from start to finish. Values up to `420` are allowed; only the current page of 42 spaces is displayed during a run.
 - `Red light rate %`: chance that a cue is NO-GO.
 - `Reverse zones`: number of purple reverse segments on the route.
 - `1-back zones`: number of blue 1-back segments on the route.
