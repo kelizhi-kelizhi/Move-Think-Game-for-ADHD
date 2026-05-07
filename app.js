@@ -22,42 +22,55 @@ const ROUTE_PAGE_SIZE = 42;
 const MAX_PATH_LENGTH = 420;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
+const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 
 const SYSTEM_PRESETS = {
   easy: {
     label: "Easy",
     baseInterval: 1800,
     jitter: 300,
+    delayBlockSize: 1,
+    delayBalance: 0,
+    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1800,
     pathLength: 18,
     redRate: 25,
     reverseZones: 1,
     nbackZones: 1,
     abAlternation: 0,
+    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
   normal: {
     label: "Normal",
     baseInterval: 1500,
     jitter: 450,
+    delayBlockSize: 1,
+    delayBalance: 0,
+    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1500,
     pathLength: 24,
     redRate: 30,
     reverseZones: 2,
     nbackZones: 1,
     abAlternation: 0,
+    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
   hard: {
     label: "Hard",
     baseInterval: 1100,
     jitter: 550,
+    delayBlockSize: 1,
+    delayBalance: 0,
+    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1100,
     pathLength: 30,
     redRate: 35,
     reverseZones: 2,
     nbackZones: 2,
     abAlternation: 0,
+    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
 };
@@ -66,6 +79,25 @@ const CUSTOM_LABELS = {
   custom1: "Custom 1",
   custom2: "Custom 2",
   custom3: "Custom 3",
+};
+
+const SETTING_HELP = {
+  baseInterval: "Minimum wait after a cue is resolved before the next cue appears.",
+  jitter: "Extra wait range added to the cue interval. A 1500ms interval with 500ms jitter creates waits from 1500ms to 2000ms.",
+  delayBlockSize: "Number of consecutive route spaces that share one generated wait time.",
+  delayBalance: "0 makes each wait block independently random. 1 spreads the wait values evenly across the interval range, then shuffles them.",
+  delayColorStrength: "Controls how strongly route spaces show wait time. 0 hides the effect; 1 makes short waits lighter and long waits darker.",
+  responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
+  pathLength: "Number of route spaces from start to finish. Long routes are shown one 42-space page at a time.",
+  redRate: "Chance that a generated cue is NO-GO.",
+  reverseZones: "Number of purple route segments where green targets must be answered with the opposite configured input.",
+  nbackZones: "Number of blue route segments where the required action comes from the previous route space's generated cue.",
+  abAlternation: "Controls how strongly generated cues switch between input group A and group B.",
+  startHand: "Which hand starts the first half of the route. The second half switches to the other hand.",
+  groupAKey1: "First input assigned to group A for right-side cues.",
+  groupAKey2: "Second input assigned to group A for right-side cues.",
+  groupBKey1: "First input assigned to group B for right-side cues.",
+  groupBKey2: "Second input assigned to group B for right-side cues.",
 };
 
 const state = {
@@ -89,9 +121,14 @@ const state = {
   activeHand: "left",
   currentStimulus: null,
   stimulusId: 0,
+  cueTimer: null,
+  cueTimerStartedAt: 0,
+  cueTimerDelay: 0,
   responseTimer: null,
-  lastDisplayedInstruction: null,
-  lastDisplayedGroup: null,
+  isPaused: false,
+  pausedPhase: null,
+  cueRemainingMs: 0,
+  responseElapsedBeforePause: 0,
   stimulusStartedAt: 0,
   timerStartedAt: 0,
   timerDuration: 0,
@@ -109,12 +146,16 @@ function cleanPreset(preset) {
     label: preset.label,
     baseInterval: clampNumber(preset.baseInterval, 400, 4000, 1500),
     jitter: clampNumber(preset.jitter, 0, 2000, 450),
+    delayBlockSize: clampNumber(preset.delayBlockSize, 1, MAX_PATH_LENGTH, 1),
+    delayBalance: clampNumber(preset.delayBalance, 0, 1, 0),
+    delayColorStrength: clampNumber(preset.delayColorStrength, 0, 1, DEFAULT_DELAY_COLOR_STRENGTH),
     responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
     pathLength: clampNumber(preset.pathLength, 8, MAX_PATH_LENGTH, 24),
     redRate: clampNumber(preset.redRate, 0, 80, 30),
     reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
     nbackZones: clampNumber(preset.nbackZones, 0, 6, 1),
     abAlternation: clampNumber(preset.abAlternation, 0, 1, 0),
+    startHand: preset.startHand === "right" ? "right" : "left",
     groupAKey1: preset.groupAKey1,
     groupAKey2: preset.groupAKey2,
     groupBKey1: preset.groupBKey1,
@@ -246,10 +287,18 @@ function allPresets() {
 function clearTimers() {
   for (const timer of state.timers) clearTimeout(timer);
   state.timers.clear();
+  state.cueTimer = null;
   state.responseTimer = null;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   if (state.raf) cancelAnimationFrame(state.raf);
   state.raf = null;
+}
+
+function clearCueTimer() {
+  if (!state.cueTimer) return;
+  clearTimeout(state.cueTimer);
+  state.timers.delete(state.cueTimer);
+  state.cueTimer = null;
 }
 
 function clearResponseTimer() {
@@ -298,10 +347,18 @@ function exitGame() {
   state.screen = "config";
   state.phase = "idle";
   state.currentStimulus = null;
+  resetPauseState();
   setMessage("Game exited. Adjust settings or start again.", "");
   releaseGamePointerLock();
   releaseGameFullscreen();
   render();
+}
+
+function resetPauseState() {
+  state.isPaused = false;
+  state.pausedPhase = null;
+  state.cueRemainingMs = 0;
+  state.responseElapsedBeforePause = 0;
 }
 
 function setTimer(callback, delay) {
@@ -313,37 +370,41 @@ function setTimer(callback, delay) {
   return timer;
 }
 
-function randomRightInput() {
-  const groups = getInputGroups();
-  const previousGroup = state.lastDisplayedGroup;
+function setCueTimer(callback, delay) {
+  clearCueTimer();
+  state.cueTimerDelay = Math.max(0, delay);
+  state.cueTimerStartedAt = performance.now();
+  state.cueTimer = setTimer(() => {
+    state.cueTimer = null;
+    callback();
+  }, state.cueTimerDelay);
+}
+
+function randomRightInput(previousGroup = null, settings = state.settings) {
+  const groups = getInputGroups(settings);
   let nextGroup;
   if (!previousGroup) {
     nextGroup = Math.random() < 0.5 ? "A" : "B";
   } else {
     const oppositeGroup = previousGroup === "A" ? "B" : "A";
-    const alternateChance = 0.5 + state.settings.abAlternation * 0.5;
+    const alternateChance = 0.5 + settings.abAlternation * 0.5;
     nextGroup = Math.random() < alternateChance ? oppositeGroup : previousGroup;
   }
   const inputs = groups[nextGroup];
   return inputs[Math.floor(Math.random() * inputs.length)];
 }
 
-function randomDelay() {
-  const extraDelay = Math.round(Math.random() * state.settings.jitter);
-  return Math.max(250, state.settings.baseInterval + extraDelay);
-}
-
 function randomInteger(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function invertInput(input) {
+function invertInput(input, settings = state.settings) {
   const option = INPUT_OPTIONS.find((item) => item.id === input);
   if (!option) return input;
-  const configuredIds = getConfiguredInputIds();
+  const configuredIds = getConfiguredInputIds(settings);
   if (configuredIds.includes(option.pair)) return option.pair;
   const oppositeSide = option.side === "left" ? "right" : "left";
-  const fallback = getConfiguredInputs().find((item) => item.side === oppositeSide);
+  const fallback = getConfiguredInputs(settings).find((item) => item.side === oppositeSide);
   return fallback?.id || input;
 }
 
@@ -414,6 +475,12 @@ function updateSetting(key, value) {
     render();
     return;
   }
+  if (key === "startHand") {
+    state.settings[key] = value;
+    state.settings = cleanPreset(state.settings);
+    render();
+    return;
+  }
   state.settings[key] = Number(value);
 }
 
@@ -450,9 +517,11 @@ function startGame() {
   state.activeHand = getHandForPosition(0);
   state.currentStimulus = null;
   state.stimulusId = 0;
+  state.cueTimer = null;
+  state.cueTimerStartedAt = 0;
+  state.cueTimerDelay = 0;
   state.responseTimer = null;
-  state.lastDisplayedInstruction = null;
-  state.lastDisplayedGroup = null;
+  resetPauseState();
   state.trials = [];
   state.movementHistory = [];
   setMessage("Ready... wait for the right-side cue.", "");
@@ -469,7 +538,60 @@ function generateBoardCells(settings) {
   placeZones(cells, "nback1", settings.nbackZones, 2, 3);
   cells[0].type = "start";
   cells[cells.length - 1].type = "finish";
+  applyRouteEvents(cells, settings);
   return cells;
+}
+
+function applyRouteEvents(cells, settings) {
+  const delays = generateRouteDelays(settings, cells.length);
+  let previousGroup = null;
+
+  cells.forEach((cell, index) => {
+    const displayKey = randomRightInput(previousGroup, settings);
+    previousGroup = inputGroup(displayKey, settings);
+    cell.delayMs = delays[index];
+    cell.displayedInstruction = {
+      light: Math.random() * 100 < settings.redRate ? "red" : "green",
+      displayKey,
+    };
+  });
+
+  cells.forEach((cell, index) => {
+    const previousDisplayed = cells[index - 1]?.displayedInstruction || null;
+    cell.requiredInstruction = getRequiredInstruction(
+      cell.displayedInstruction,
+      cell.type,
+      previousDisplayed,
+      settings,
+    );
+  });
+}
+
+function generateRouteDelays(settings, routeLength) {
+  const blockSize = Math.max(1, Math.round(settings.delayBlockSize));
+  const blockCount = Math.max(1, Math.ceil(routeLength / blockSize));
+  const randomValues = Array.from({ length: blockCount }, () => settings.baseInterval + Math.random() * settings.jitter);
+  const balancedValues = shuffleArray(evenlySpacedDelays(settings.baseInterval, settings.jitter, blockCount));
+  const balance = settings.delayBalance;
+  const blockDelays = randomValues.map((randomValue, index) =>
+    Math.max(250, Math.round(randomValue * (1 - balance) + balancedValues[index] * balance)),
+  );
+
+  return Array.from({ length: routeLength }, (_, index) => blockDelays[Math.floor(index / blockSize)]);
+}
+
+function evenlySpacedDelays(baseInterval, jitter, count) {
+  if (count === 1) return [baseInterval + jitter / 2];
+  return Array.from({ length: count }, (_, index) => baseInterval + (jitter * index) / (count - 1));
+}
+
+function shuffleArray(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
+  }
+  return shuffled;
 }
 
 function placeZones(cells, type, count, minLength, maxLength) {
@@ -498,26 +620,26 @@ function placeZones(cells, type, count, minLength, maxLength) {
 
 function scheduleStimulus() {
   clearResponseTimer();
+  clearCueTimer();
   state.phase = "waiting";
   state.currentStimulus = null;
   state.timerPercent = 0;
   render();
-  setTimer(showStimulus, randomDelay());
+  setCueTimer(showStimulus, getCurrentDelay());
 }
 
 function queueNextStimulus() {
-  const delay = randomDelay();
-  setTimer(showStimulus, delay);
+  setCueTimer(showStimulus, getCurrentDelay());
 }
 
 function showStimulus() {
+  if (state.isPaused) return;
   clearResponseTimer();
-  const displayedInstruction = {
-    light: Math.random() * 100 < state.settings.redRate ? "red" : "green",
-    displayKey: randomRightInput(),
-  };
-  const rule = getCurrentRule();
-  const requiredInstruction = getRequiredInstruction(displayedInstruction, rule);
+  const routeCell = getCurrentRouteCell();
+  if (!routeCell) return;
+  const displayedInstruction = { ...routeCell.displayedInstruction };
+  const requiredInstruction = { ...routeCell.requiredInstruction };
+  const rule = routeCell.type;
   const stimulusId = state.stimulusId + 1;
   state.stimulusId = stimulusId;
   state.phase = "rightStimulus";
@@ -534,6 +656,11 @@ function showStimulus() {
   playSound("cue");
   setMessage(stimulusMessage(state.currentStimulus), requiredInstruction.light === "green" ? "good" : "bad");
   render();
+  startResponseTimer(stimulusId, state.settings.responseWindow);
+}
+
+function startResponseTimer(stimulusId, delay) {
+  clearResponseTimer();
   state.responseTimer = setTimer(() => {
     if (
       state.phase !== "rightStimulus" ||
@@ -551,16 +678,89 @@ function showStimulus() {
       success: required.light === "red",
       reactionTime: state.settings.responseWindow,
     });
-  }, state.settings.responseWindow);
+  }, delay);
+}
+
+function togglePause() {
+  if (!canPauseGame()) return;
+  if (state.isPaused) {
+    resumeGame();
+  } else {
+    pauseGame();
+  }
+}
+
+function canPauseGame() {
+  return (
+    state.screen === "game" &&
+    state.boardPosition < state.boardCells.length - 1 &&
+    (state.phase === "waiting" || state.phase === "rightStimulus")
+  );
+}
+
+function pauseGame() {
+  if (!canPauseGame() || state.isPaused) return;
+  const now = performance.now();
+  state.isPaused = true;
+  state.pausedPhase = state.phase;
+
+  if (state.phase === "waiting") {
+    state.cueRemainingMs = state.cueTimer
+      ? Math.max(0, state.cueTimerDelay - (now - state.cueTimerStartedAt))
+      : getCurrentDelay();
+    clearCueTimer();
+  }
+
+  if (state.phase === "rightStimulus") {
+    state.responseElapsedBeforePause = Math.min(state.settings.responseWindow, Math.max(0, now - state.stimulusStartedAt));
+    clearResponseTimer();
+    if (state.raf) cancelAnimationFrame(state.raf);
+    state.raf = null;
+    state.timerPercent = Math.min(100, (state.responseElapsedBeforePause / state.settings.responseWindow) * 100);
+  }
+
+  render();
+}
+
+function resumeGame() {
+  if (!state.isPaused) return;
+  const pausedPhase = state.pausedPhase;
+  state.isPaused = false;
+  state.pausedPhase = null;
+
+  if (pausedPhase === "waiting") {
+    setCueTimer(showStimulus, state.cueRemainingMs);
+  }
+
+  if (pausedPhase === "rightStimulus" && state.currentStimulus && !state.currentStimulus.responded) {
+    const elapsed = Math.min(state.settings.responseWindow, Math.max(0, state.responseElapsedBeforePause));
+    const remaining = Math.max(0, state.settings.responseWindow - elapsed);
+    state.stimulusStartedAt = performance.now() - elapsed;
+    startVisualTimer(state.settings.responseWindow, elapsed);
+    startResponseTimer(state.currentStimulus.id, remaining);
+  }
+
+  state.cueRemainingMs = 0;
+  state.responseElapsedBeforePause = 0;
+  render();
 }
 
 function getCurrentRule() {
-  return state.boardCells[state.boardPosition]?.type || "normal";
+  return getCurrentRouteCell()?.type || "normal";
 }
 
-function getRequiredInstruction(displayedInstruction, rule) {
+function getCurrentRouteCell(position = state.boardPosition) {
+  return state.boardCells[position] || null;
+}
+
+function getCurrentDelay() {
+  const delay = getCurrentRouteCell()?.delayMs ?? state.settings.baseInterval;
+  return Math.max(250, delay);
+}
+
+function getRequiredInstruction(displayedInstruction, rule, previousDisplayedInstruction = null, settings = state.settings) {
   if (rule === "nback1") {
-    const previous = state.lastDisplayedInstruction || displayedInstruction;
+    const previous = previousDisplayedInstruction || displayedInstruction;
     return {
       light: previous.light,
       displayKey: previous.displayKey,
@@ -574,7 +774,7 @@ function getRequiredInstruction(displayedInstruction, rule) {
   return {
     light: "green",
     displayKey: displayedInstruction.displayKey,
-    effectiveKey: rule === "reverse" ? invertInput(displayedInstruction.displayKey) : displayedInstruction.displayKey,
+    effectiveKey: rule === "reverse" ? invertInput(displayedInstruction.displayKey, settings) : displayedInstruction.displayKey,
     source: "current",
   };
 }
@@ -590,11 +790,13 @@ function stimulusMessage(stimulus) {
   return "GO: press the target, then get ready.";
 }
 
-function startVisualTimer(duration) {
-  state.timerStartedAt = performance.now();
+function startVisualTimer(duration, elapsed = 0) {
+  if (state.raf) cancelAnimationFrame(state.raf);
+  state.raf = null;
+  state.timerStartedAt = performance.now() - elapsed;
   state.timerDuration = duration;
   function tick() {
-    if (state.phase !== "rightStimulus") return;
+    if (state.phase !== "rightStimulus" || state.isPaused) return;
     const elapsed = performance.now() - state.timerStartedAt;
     state.timerPercent = Math.min(100, (elapsed / duration) * 100);
     updateTimerDom();
@@ -614,9 +816,8 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   clearResponseTimer();
   stimulus.responded = true;
   const fromPosition = state.boardPosition;
+  const displayedGroup = inputGroup(stimulus.displayedInstruction.displayKey);
 
-  state.lastDisplayedInstruction = { ...stimulus.displayedInstruction };
-  state.lastDisplayedGroup = inputGroup(stimulus.displayedInstruction.displayKey);
   if (success) {
     state.score += stimulus.requiredInstruction.light === "red" ? 120 : 100;
     if (stimulus.rule === "reverse" || stimulus.rule === "nback1") state.score += 20;
@@ -638,7 +839,7 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     toPosition: state.boardPosition,
     displayedLight: stimulus.displayedInstruction.light,
     displayedKey: stimulus.displayedInstruction.displayKey,
-    displayedGroup: state.lastDisplayedGroup,
+    displayedGroup,
     requiredLight: stimulus.requiredInstruction.light,
     requiredKey: stimulus.requiredInstruction.effectiveKey,
     input,
@@ -696,7 +897,12 @@ function movePlayer(delta) {
 
 function getHandForPosition(position) {
   const switchIndex = Math.floor(state.boardCells.length / 2);
-  return position >= switchIndex ? "right" : "left";
+  const startHand = state.settings.startHand === "right" ? "right" : "left";
+  return position >= switchIndex ? oppositeHand(startHand) : startHand;
+}
+
+function oppositeHand(hand) {
+  return hand === "right" ? "left" : "right";
 }
 
 function triggerPlayerStep() {
@@ -709,6 +915,7 @@ function triggerPlayerStep() {
 }
 
 function handleGameInput(input) {
+  if (state.isPaused) return;
   if (state.screen !== "game" || state.phase !== "rightStimulus") return;
   if (!isRightInput(input)) return;
   handleRightInput(input);
@@ -780,7 +987,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V2 forest route training: right-side cues move the explorer forward or backward across special rule zones.</p>
+            <p class="subtitle">V3 forest route training: static route cues move the explorer forward or backward across special rule zones.</p>
           </div>
         </div>
 
@@ -810,12 +1017,16 @@ function renderConfig() {
           <div class="config-grid">
             ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
             ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
+            ${numberField("delayBlockSize", "Delay block size", s.delayBlockSize, 1, MAX_PATH_LENGTH, 1)}
+            ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
+            ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
             ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
             ${numberField("pathLength", "Path length", s.pathLength, 8, MAX_PATH_LENGTH, 1)}
             ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
             ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
             ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
             ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+            ${handField("startHand", "Start hand", s.startHand)}
           </div>
         </div>
 
@@ -873,7 +1084,10 @@ function renderConfig() {
 function numberField(key, label, value, min, max, step) {
   return `
     <div class="config-card field">
-      <label for="${key}">${label}</label>
+      <div class="field-label-row">
+        <label for="${key}">${label}</label>
+        ${fieldHelp(key)}
+      </div>
       <input id="${key}" data-setting="${key}" type="number" inputmode="numeric" min="${min}" max="${max}" step="${step}" value="${value}" />
     </div>
   `;
@@ -883,7 +1097,10 @@ function selectField(key, label, value) {
   const selectedIds = new Set(getConfiguredInputIds().filter((id) => id !== value));
   return `
     <div class="config-card field">
-      <label for="${key}">${label}</label>
+      <div class="field-label-row">
+        <label for="${key}">${label}</label>
+        ${fieldHelp(key)}
+      </div>
       <select id="${key}" data-setting="${key}">
         ${INPUT_OPTIONS.map(
           (input) =>
@@ -891,6 +1108,32 @@ function selectField(key, label, value) {
         ).join("")}
       </select>
     </div>
+  `;
+}
+
+function handField(key, label, value) {
+  return `
+    <div class="config-card field">
+      <div class="field-label-row">
+        <label for="${key}">${label}</label>
+        ${fieldHelp(key)}
+      </div>
+      <select id="${key}" data-setting="${key}">
+        <option value="left" ${value === "left" ? "selected" : ""}>Left</option>
+        <option value="right" ${value === "right" ? "selected" : ""}>Right</option>
+      </select>
+    </div>
+  `;
+}
+
+function fieldHelp(key) {
+  const help = SETTING_HELP[key];
+  if (!help) return "";
+  return `
+    <span class="field-help" tabindex="0" aria-label="${help}">
+      ?
+      <span class="field-tooltip" role="tooltip">${help}</span>
+    </span>
   `;
 }
 
@@ -903,9 +1146,21 @@ function renderGame() {
         ${renderBoard()}
         ${renderStimulus()}
       </div>
+      ${state.isPaused ? renderPauseOverlay() : ""}
     </section>
   `;
   updateTimerDom();
+}
+
+function renderPauseOverlay() {
+  return `
+    <div class="pause-overlay" role="status" aria-live="polite">
+      <div class="pause-modal">
+        <span>PAUSED</span>
+        <strong>Press Space to continue</strong>
+      </div>
+    </div>
+  `;
 }
 
 function renderHud() {
@@ -931,6 +1186,7 @@ function hudItem(label, value) {
 }
 
 function phaseLabel() {
+  if (state.isPaused) return "Paused";
   const labels = {
     waiting: "Ready",
     rightStimulus: "Right",
@@ -961,12 +1217,12 @@ function renderHandHud() {
 function renderBoard() {
   const page = getRoutePage();
   const pathPoints = page.cells.map((cell) => `${cell.x},${cell.y}`).join(" ");
+  const delayRange = getRouteDelayRange();
   const cells = page.cells
     .map((cell) => {
       const isCurrent = state.boardPosition === cell.index;
-      const isVisited = state.visitedCells.has(cell.index);
       return `
-        <div class="trail-cell ${cell.type} ${isCurrent ? "current" : ""} ${isVisited ? "visited" : ""}" style="--x:${cell.x}%; --y:${cell.y}%;">
+        <div class="trail-cell ${cell.type} ${isCurrent ? "current" : ""}" style="--x:${cell.x}%; --y:${cell.y}%; ${delayColorStyle(cell, delayRange)}">
           <span class="trail-index">${cell.index + 1}</span>
           <span class="trail-label">${cellLabel(cell)}</span>
           ${isCurrent ? renderPlayer() : ""}
@@ -992,6 +1248,26 @@ function renderBoard() {
       <div class="message-bar ${state.messageTone}">${state.message}</div>
     </section>
   `;
+}
+
+function getRouteDelayRange() {
+  const delays = state.boardCells.map((cell) => cell.delayMs).filter((delay) => Number.isFinite(delay));
+  if (!delays.length) return { min: 0, max: 0 };
+  return {
+    min: Math.min(...delays),
+    max: Math.max(...delays),
+  };
+}
+
+function delayColorStyle(cell, range) {
+  const strength = state.settings.delayColorStrength;
+  if (!strength || range.max <= range.min || !Number.isFinite(cell.delayMs)) {
+    return "--delay-lighten:0; --delay-darken:0;";
+  }
+  const normalized = (cell.delayMs - range.min) / (range.max - range.min);
+  const lighten = (1 - normalized) * 0.16 * strength;
+  const darken = normalized * 0.34 * strength;
+  return `--delay-lighten:${lighten.toFixed(3)}; --delay-darken:${darken.toFixed(3)};`;
 }
 
 function getRoutePage(position = state.boardPosition) {
@@ -1129,6 +1405,11 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "Escape" && state.screen === "game") {
     event.preventDefault();
     exitGame();
+    return;
+  }
+  if (event.code === "Space" && state.screen === "game") {
+    event.preventDefault();
+    togglePause();
     return;
   }
   const match = getConfiguredInputs().find((input) => input.code === event.code);
