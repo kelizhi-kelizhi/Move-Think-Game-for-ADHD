@@ -13,10 +13,12 @@ const INPUT_OPTIONS = [
 
 const DEFAULT_INPUT_GROUPS = {
   groupAKey1: "leftShift",
-  groupAKey2: "rightShift",
+  groupAKey2: "",
   groupBKey1: "mouseLeft",
-  groupBKey2: "mouseRight",
+  groupBKey2: "",
 };
+
+const EMPTY_INPUT_OPTION = { id: "", label: "Empty" };
 
 const ROUTE_PAGE_SIZE = 42;
 const MAX_PATH_LENGTH = 420;
@@ -90,14 +92,14 @@ const SETTING_HELP = {
   responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
   pathLength: "Number of route spaces from start to finish. Long routes are shown one 42-space page at a time.",
   redRate: "Chance that a generated cue is NO-GO.",
-  reverseZones: "Number of purple route segments where green targets must be answered with the opposite configured input.",
+  reverseZones: "Number of purple route segments where green targets use the matching slot in the other input group.",
   nbackZones: "Number of blue route segments where the required action comes from the previous route space's generated cue.",
   abAlternation: "Controls how strongly generated cues switch between input group A and group B.",
   startHand: "Which hand starts the first half of the route. The second half switches to the other hand.",
-  groupAKey1: "First input assigned to group A for right-side cues.",
-  groupAKey2: "Second input assigned to group A for right-side cues.",
-  groupBKey1: "First input assigned to group B for right-side cues.",
-  groupBKey2: "Second input assigned to group B for right-side cues.",
+  groupAKey1: "First input assigned to group A. In reverse zones, this maps to group B key 1.",
+  groupAKey2: "Optional second input assigned to group A. In reverse zones, this maps to group B key 2.",
+  groupBKey1: "First input assigned to group B. In reverse zones, this maps to group A key 1.",
+  groupBKey2: "Optional second input assigned to group B. In reverse zones, this maps to group A key 2.",
 };
 
 const state = {
@@ -174,12 +176,24 @@ function cleanInputGroups(settings) {
   const keys = ["groupAKey1", "groupAKey2", "groupBKey1", "groupBKey2"];
   const ids = keys.map((key) => settings[key]);
   const validIds = new Set(INPUT_OPTIONS.map((input) => input.id));
-  const uniqueIds = new Set(ids);
-  if (ids.length !== uniqueIds.size || ids.some((id) => !validIds.has(id))) {
+  const filledIds = ids.filter(Boolean);
+  const uniqueIds = new Set(filledIds);
+  const hasGroupA = Boolean(settings.groupAKey1 || settings.groupAKey2);
+  const hasGroupB = Boolean(settings.groupBKey1 || settings.groupBKey2);
+  const hasReversePair = Boolean(
+    (settings.groupAKey1 && settings.groupBKey1) || (settings.groupAKey2 && settings.groupBKey2),
+  );
+  if (
+    filledIds.length !== uniqueIds.size ||
+    filledIds.some((id) => !validIds.has(id)) ||
+    !hasGroupA ||
+    !hasGroupB ||
+    !hasReversePair
+  ) {
     return { ...DEFAULT_INPUT_GROUPS };
   }
   return keys.reduce((groups, key) => {
-    groups[key] = settings[key];
+    groups[key] = settings[key] || "";
     return groups;
   }, {});
 }
@@ -380,32 +394,55 @@ function setCueTimer(callback, delay) {
   }, state.cueTimerDelay);
 }
 
-function randomRightInput(previousGroup = null, settings = state.settings) {
+function randomRightInput(previousGroup = null, settings = state.settings, options = {}) {
   const groups = getInputGroups(settings);
+  const candidates = getInputCandidates(settings, options);
+  const availableGroups = Object.entries(candidates)
+    .filter(([, inputs]) => inputs.length)
+    .map(([group]) => group);
   let nextGroup;
   if (!previousGroup) {
-    nextGroup = Math.random() < 0.5 ? "A" : "B";
+    nextGroup = availableGroups[Math.floor(Math.random() * availableGroups.length)] || "A";
   } else {
     const oppositeGroup = previousGroup === "A" ? "B" : "A";
     const alternateChance = 0.5 + settings.abAlternation * 0.5;
     nextGroup = Math.random() < alternateChance ? oppositeGroup : previousGroup;
+    if (!candidates[nextGroup]?.length) {
+      nextGroup = candidates[oppositeGroup]?.length ? oppositeGroup : availableGroups[0];
+    }
   }
-  const inputs = groups[nextGroup];
+  const inputs = candidates[nextGroup]?.length ? candidates[nextGroup] : groups[nextGroup].filter(Boolean);
   return inputs[Math.floor(Math.random() * inputs.length)];
+}
+
+function getInputCandidates(settings = state.settings, options = {}) {
+  const groups = getInputGroups(settings);
+  const candidates = {
+    A: groups.A.filter(Boolean),
+    B: groups.B.filter(Boolean),
+  };
+  if (!options.requireReversePair) return candidates;
+  return {
+    A: candidates.A.filter((input) => Boolean(reverseInput(input, settings))),
+    B: candidates.B.filter((input) => Boolean(reverseInput(input, settings))),
+  };
 }
 
 function randomInteger(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function invertInput(input, settings = state.settings) {
-  const option = INPUT_OPTIONS.find((item) => item.id === input);
-  if (!option) return input;
-  const configuredIds = getConfiguredInputIds(settings);
-  if (configuredIds.includes(option.pair)) return option.pair;
-  const oppositeSide = option.side === "left" ? "right" : "left";
-  const fallback = getConfiguredInputs(settings).find((item) => item.side === oppositeSide);
-  return fallback?.id || input;
+function reverseInput(input, settings = state.settings) {
+  const groups = cleanInputGroups(settings);
+  const pairs = [
+    ["groupAKey1", "groupBKey1"],
+    ["groupAKey2", "groupBKey2"],
+  ];
+  for (const [aKey, bKey] of pairs) {
+    if (groups[aKey] === input) return groups[bKey] || null;
+    if (groups[bKey] === input) return groups[aKey] || null;
+  }
+  return null;
 }
 
 function inputLabel(id) {
@@ -440,7 +477,7 @@ function getInputGroups(settings = state.settings) {
 
 function getConfiguredInputIds(settings = state.settings) {
   const groups = getInputGroups(settings);
-  return [...groups.A, ...groups.B];
+  return [...groups.A, ...groups.B].filter(Boolean);
 }
 
 function getConfiguredInputs(settings = state.settings) {
@@ -547,7 +584,7 @@ function applyRouteEvents(cells, settings) {
   let previousGroup = null;
 
   cells.forEach((cell, index) => {
-    const displayKey = randomRightInput(previousGroup, settings);
+    const displayKey = randomRightInput(previousGroup, settings, { requireReversePair: cell.type === "reverse" });
     previousGroup = inputGroup(displayKey, settings);
     cell.delayMs = delays[index];
     cell.displayedInstruction = {
@@ -774,7 +811,7 @@ function getRequiredInstruction(displayedInstruction, rule, previousDisplayedIns
   return {
     light: "green",
     displayKey: displayedInstruction.displayKey,
-    effectiveKey: rule === "reverse" ? invertInput(displayedInstruction.displayKey, settings) : displayedInstruction.displayKey,
+    effectiveKey: rule === "reverse" ? reverseInput(displayedInstruction.displayKey, settings) : displayedInstruction.displayKey,
     source: "current",
   };
 }
@@ -786,7 +823,7 @@ function stimulusMessage(stimulus) {
     return `1-back: press the previous cue, ${inputLabel(required.effectiveKey)}.`;
   }
   if (required.light === "red") return "NO-GO: stay still and do not press.";
-  if (stimulus.rule === "reverse") return "Reverse zone: press the opposite side.";
+  if (stimulus.rule === "reverse") return "Reverse zone: press the matching slot in the other group.";
   return "GO: press the target, then get ready.";
 }
 
@@ -987,7 +1024,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V3 forest route training: static route cues move the explorer forward or backward across special rule zones.</p>
+            <p class="subtitle">V3 forest route training: static route cues move the explorer forward or backward while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
@@ -1033,7 +1070,7 @@ function renderConfig() {
         <div class="current-preset input-groups-panel">
           <div class="panel-header">
             <h2>Input Groups</h2>
-            <span>A/B group selection for right-side cues</span>
+            <span>Place A and B inputs far apart; reverse maps A1/B1 and A2/B2</span>
           </div>
           <div class="config-grid">
             ${selectField("groupAKey1", "Group A key 1", s.groupAKey1)}
@@ -1053,7 +1090,7 @@ function renderConfig() {
         </div>
 
         <div class="actions">
-          <p class="safety">Make sure the floor is clear and the mouse is fixed away from the computer before starting.</p>
+          <p class="safety">Make sure the floor is clear. Place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals, so each cue creates real movement.</p>
           <div class="action-buttons">
             <button class="primary" id="startBtn">Start Training</button>
           </div>
@@ -1094,7 +1131,8 @@ function numberField(key, label, value, min, max, step) {
 }
 
 function selectField(key, label, value) {
-  const selectedIds = new Set(getConfiguredInputIds().filter((id) => id !== value));
+  const selectedIds = new Set(getConfiguredInputIds().filter((id) => id && id !== value));
+  const options = [EMPTY_INPUT_OPTION, ...INPUT_OPTIONS];
   return `
     <div class="config-card field">
       <div class="field-label-row">
@@ -1102,7 +1140,7 @@ function selectField(key, label, value) {
         ${fieldHelp(key)}
       </div>
       <select id="${key}" data-setting="${key}">
-        ${INPUT_OPTIONS.map(
+        ${options.map(
           (input) =>
             `<option value="${input.id}" ${input.id === value ? "selected" : ""} ${selectedIds.has(input.id) ? "disabled" : ""}>${input.label}</option>`,
         ).join("")}
@@ -1349,7 +1387,7 @@ function getTargetContent() {
 
 function ruleNote(stimulus) {
   if (!stimulus || state.phase !== "rightStimulus") return "";
-  if (stimulus.rule === "reverse") return "Purple zone: green targets are left/right reversed";
+  if (stimulus.rule === "reverse") return "Purple zone: press the matching slot in the other group";
   if (stimulus.rule === "nback1") {
     const required = stimulus.requiredInstruction;
     if (required.light === "red") return "Blue zone: do the previous cue, which was NO-GO";
