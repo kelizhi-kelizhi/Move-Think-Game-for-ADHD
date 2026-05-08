@@ -4,25 +4,28 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 
 ## Current Rules
 
-- V3 uses a forest route board with a static route event plan generated before each run.
-- The right side shows a timed GO / NO-GO cue.
+- V3.2 uses a forest route board with a static route event plan generated before each run.
+- The right side shows a timed GO / NO-GO cue. Target keys fade out after the configured visible time.
 - V3 lets you configure two input groups. Each group contains two active keys.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
-- GO / NO-GO, displayed key, required action, and cue delay are generated for every route space when the run starts.
+- GO / NO-GO, displayed key sequence, required action sequence, and cue delay are generated for every route space when the run starts.
 - During a run, each route space keeps its generated values. If the explorer moves back and revisits a space, the same cue and delay are used again.
 - Route spaces can show generated wait time with color depth: shorter waits are lighter, longer waits are darker.
 - On a correct action, the pixel explorer moves forward one space.
 - On a wrong action or missed green GO cue, the explorer moves back one space.
 - The explorer cannot move before the start.
 - Routes can be longer than one screen. The board shows up to 42 spaces at once, then switches to the next page when the explorer reaches space 43, 85, and so on.
+- Later pages can require multi-key GO sequences. By default page 1 uses one key, page 2 uses two keys, and page 3+ uses up to three keys.
+- GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
+- NO-GO sequences require no input for one response window, regardless of sequence length.
 - The session ends when the explorer reaches the finish space.
 - The route starts with the configured start hand for the first half, then switches to the other hand for the second half.
 - The HUD highlights the current hand. The browser voice announces the start hand at the start and the other hand when crossing the halfway point.
 - Hand voice prompts use the browser's built-in SpeechSynthesis voice when available, so no audio files need to be downloaded.
 - Purple route spaces are reverse zones: green cues use the matching slot in the other input group, so A1 maps to B1 and A2 maps to B2.
-- Blue route spaces are 1-back zones: while standing on that space, perform the previous route space's generated cue, including both GO and NO-GO.
+- Blue route spaces are 1-back zones: while standing on that space, perform the previous route space's generated cue sequence, including both GO and NO-GO.
 - 1-back only applies while standing on a 1-back space. Leaving the zone restores normal current-cue rules.
 - Starting a run requests fullscreen plus pointer lock and hides the cursor; press `Space` to pause or resume, and press `Esc` to exit the run and return to settings.
 - Setting labels include hover/focus help for what each value changes.
@@ -41,12 +44,16 @@ Right-side GO / NO-GO:
 - `Delay block size`: number of consecutive route spaces that share one generated cue delay. For example, `10` means spaces 1-10 share one delay, spaces 11-20 share another, and so on.
 - `Delay balance`: value from `0` to `1`. At `0`, each delay block is independently random. At `1`, the delay block values are evenly spaced between `Cue interval ms` and `Cue interval ms + Random jitter ms`, then shuffled across the route.
 - `Delay color strength`: value from `0` to `1`. At `0`, wait time does not affect route space brightness. At `1`, short-wait spaces are lightest and long-wait spaces are darkest.
-- `Response window ms`: time allowed for the cue.
+- `Response window ms`: time allowed for each GO key step, or the one NO-GO window.
+- `Cue visible ms`: time the target key sequence stays visible before fading out. It must be shorter than `Response window ms`.
+- `Sequence start page`: first page where sequence length grows beyond one key.
+- `Sequence page step`: number of pages between each sequence length increase.
+- `Max sequence length`: cap on keys in one route-space sequence.
 - `Path length`: number of route spaces from start to finish. Values up to `420` are allowed; only the current page of 42 spaces is displayed during a run.
 - `Red light rate %`: chance that a cue is NO-GO.
 - `Reverse zones`: number of purple reverse segments on the route. Reverse uses group-slot mapping, not physical left/right mapping.
 - `1-back zones`: number of blue 1-back segments on the route.
-- `AB alternation`: value from `0` to `1`. If the previous displayed key was in group A, the next cue chooses group B with probability `0.5 + 0.5 * AB alternation`; the same formula applies in reverse.
+- `AB alternation`: value from `0` to `1`. If the previous displayed key was in group A, the next generated key chooses group B with probability `0.5 + 0.5 * AB alternation`; the same formula applies in reverse. Multi-key sequences apply this continuously across keys and across route spaces.
 - `Start hand`: whether the first half of the route starts as left-hand or right-hand practice.
 - `Input Groups`: non-overlapping key choices split into group A and group B. Empty slots are allowed; A1/B1 and A2/B2 are the reverse pairs.
 

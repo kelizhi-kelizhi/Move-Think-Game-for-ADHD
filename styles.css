@@ -599,6 +599,45 @@ h1 {
   text-align: center;
 }
 
+.target-sequence {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.target-key.active-target .target-sequence {
+  animation: target-memory-fade 180ms ease var(--cue-visible-ms) forwards;
+}
+
+.target-key.hidden-target .target-sequence {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.target-sequence-item {
+  min-width: 76px;
+  min-height: 70px;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border: 2px solid transparent;
+}
+
+.target-sequence-item.current-step {
+  border-color: var(--cyan);
+}
+
+.target-sequence .mouse-visual {
+  font-size: 58px;
+}
+
+.target-sequence .key-visual {
+  font-size: 34px;
+}
+
 .target-key .mouse-visual {
   font-size: 88px;
 }
@@ -610,6 +649,14 @@ h1 {
 .target-key.wait {
   color: var(--muted);
   font-size: clamp(28px, 5vw, 48px);
+}
+
+.sequence-progress {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .poison-note {
@@ -630,6 +677,13 @@ h1 {
   height: 100%;
   width: 0%;
   background: var(--cyan);
+}
+
+@keyframes target-memory-fade {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .controls-strip {
@@ -1074,6 +1128,22 @@ h1 {
   background: #fff8df;
 }
 
+.game-screen .target-sequence .key-visual {
+  font-size: 34px;
+}
+
+.game-screen .target-sequence .mouse-visual {
+  font-size: 58px;
+}
+
+.game-screen .target-sequence-item.current-step {
+  border-color: #2d2a72;
+}
+
+.game-screen .sequence-progress {
+  color: #2d2a72;
+}
+
 .game-screen .poison-note {
   color: #5f1bb5;
 }
@@ -1386,6 +1456,21 @@ h1 {
 
   .controls-strip {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .target-sequence-item {
+    min-width: 58px;
+    min-height: 58px;
+  }
+
+  .target-sequence .key-visual,
+  .game-screen .target-sequence .key-visual {
+    font-size: 24px;
+  }
+
+  .target-sequence .mouse-visual,
+  .game-screen .target-sequence .mouse-visual {
+    font-size: 44px;
   }
 
   .preset-card-header,

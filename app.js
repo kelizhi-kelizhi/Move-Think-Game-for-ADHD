@@ -25,6 +25,11 @@ const MAX_PATH_LENGTH = 420;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
+const DEFAULT_CUE_VISIBLE_MS = 750;
+const DEFAULT_SEQUENCE_START_PAGE = 2;
+const DEFAULT_SEQUENCE_INCREMENT_PAGES = 1;
+const DEFAULT_MAX_SEQUENCE_LENGTH = 3;
+const MAX_SEQUENCE_LENGTH = 12;
 
 const SYSTEM_PRESETS = {
   easy: {
@@ -35,6 +40,10 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1800,
+    cueVisibleMs: 950,
+    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
+    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
+    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
     pathLength: 18,
     redRate: 25,
     reverseZones: 1,
@@ -51,6 +60,10 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1500,
+    cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
+    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
+    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
+    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
     pathLength: 24,
     redRate: 30,
     reverseZones: 2,
@@ -67,6 +80,10 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1100,
+    cueVisibleMs: 550,
+    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
+    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
+    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
     pathLength: 30,
     redRate: 35,
     reverseZones: 2,
@@ -90,6 +107,10 @@ const SETTING_HELP = {
   delayBalance: "0 makes each wait block independently random. 1 spreads the wait values evenly across the interval range, then shuffles them.",
   delayColorStrength: "Controls how strongly route spaces show wait time. 0 hides the effect; 1 makes short waits lighter and long waits darker.",
   responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
+  cueVisibleMs: "How long the right-side target keys stay visible before fading out. Must be shorter than the response window.",
+  sequenceStartPage: "First route page where the target sequence starts growing beyond one key.",
+  sequenceIncrementPages: "How many pages pass before the target sequence gains another key.",
+  maxSequenceLength: "Maximum number of keys that can appear in one route-space sequence.",
   pathLength: "Number of route spaces from start to finish. Long routes are shown one 42-space page at a time.",
   redRate: "Chance that a generated cue is NO-GO.",
   reverseZones: "Number of purple route segments where green targets use the matching slot in the other input group.",
@@ -127,11 +148,14 @@ const state = {
   cueTimerStartedAt: 0,
   cueTimerDelay: 0,
   responseTimer: null,
+  cueVisibilityTimer: null,
   isPaused: false,
   pausedPhase: null,
   cueRemainingMs: 0,
   responseElapsedBeforePause: 0,
+  cueVisibilityElapsedBeforePause: 0,
   stimulusStartedAt: 0,
+  cueVisibleStartedAt: 0,
   timerStartedAt: 0,
   timerDuration: 0,
   timerPercent: 0,
@@ -152,6 +176,10 @@ function cleanPreset(preset) {
     delayBalance: clampNumber(preset.delayBalance, 0, 1, 0),
     delayColorStrength: clampNumber(preset.delayColorStrength, 0, 1, DEFAULT_DELAY_COLOR_STRENGTH),
     responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
+    cueVisibleMs: 0,
+    sequenceStartPage: clampNumber(preset.sequenceStartPage, 1, Math.ceil(MAX_PATH_LENGTH / ROUTE_PAGE_SIZE), DEFAULT_SEQUENCE_START_PAGE),
+    sequenceIncrementPages: clampNumber(preset.sequenceIncrementPages, 1, 20, DEFAULT_SEQUENCE_INCREMENT_PAGES),
+    maxSequenceLength: clampNumber(preset.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, DEFAULT_MAX_SEQUENCE_LENGTH),
     pathLength: clampNumber(preset.pathLength, 8, MAX_PATH_LENGTH, 24),
     redRate: clampNumber(preset.redRate, 0, 80, 30),
     reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
@@ -163,6 +191,12 @@ function cleanPreset(preset) {
     groupBKey1: preset.groupBKey1,
     groupBKey2: preset.groupBKey2,
   };
+  cleaned.cueVisibleMs = clampNumber(
+    preset.cueVisibleMs,
+    100,
+    Math.max(100, cleaned.responseWindow - 50),
+    Math.min(DEFAULT_CUE_VISIBLE_MS, Math.max(100, cleaned.responseWindow - 50)),
+  );
   return { ...cleaned, ...cleanInputGroups(cleaned) };
 }
 
@@ -303,6 +337,7 @@ function clearTimers() {
   state.timers.clear();
   state.cueTimer = null;
   state.responseTimer = null;
+  state.cueVisibilityTimer = null;
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   if (state.raf) cancelAnimationFrame(state.raf);
   state.raf = null;
@@ -320,6 +355,13 @@ function clearResponseTimer() {
   clearTimeout(state.responseTimer);
   state.timers.delete(state.responseTimer);
   state.responseTimer = null;
+}
+
+function clearCueVisibilityTimer() {
+  if (!state.cueVisibilityTimer) return;
+  clearTimeout(state.cueVisibilityTimer);
+  state.timers.delete(state.cueVisibilityTimer);
+  state.cueVisibilityTimer = null;
 }
 
 function requestGamePointerLock() {
@@ -373,6 +415,7 @@ function resetPauseState() {
   state.pausedPhase = null;
   state.cueRemainingMs = 0;
   state.responseElapsedBeforePause = 0;
+  state.cueVisibilityElapsedBeforePause = 0;
 }
 
 function setTimer(callback, delay) {
@@ -415,6 +458,26 @@ function randomRightInput(previousGroup = null, settings = state.settings, optio
   return inputs[Math.floor(Math.random() * inputs.length)];
 }
 
+function randomRightInputSequence(length, previousGroup = null, settings = state.settings, options = {}) {
+  const sequence = [];
+  let group = previousGroup;
+  for (let index = 0; index < length; index += 1) {
+    const input = randomRightInput(group, settings, options);
+    sequence.push(input);
+    group = inputGroup(input, settings);
+  }
+  return sequence;
+}
+
+function getSequenceLengthForCell(index, settings = state.settings) {
+  const page = Math.floor(index / ROUTE_PAGE_SIZE) + 1;
+  const startPage = Math.max(1, Math.round(settings.sequenceStartPage));
+  const incrementPages = Math.max(1, Math.round(settings.sequenceIncrementPages));
+  const maxLength = Math.max(1, Math.round(settings.maxSequenceLength));
+  if (page < startPage) return 1;
+  return Math.min(maxLength, 2 + Math.floor((page - startPage) / incrementPages));
+}
+
 function getInputCandidates(settings = state.settings, options = {}) {
   const groups = getInputGroups(settings);
   const candidates = {
@@ -447,6 +510,10 @@ function reverseInput(input, settings = state.settings) {
 
 function inputLabel(id) {
   return INPUT_OPTIONS.find((item) => item.id === id)?.label || "";
+}
+
+function inputSequenceLabel(ids) {
+  return ids.map(inputLabel).filter(Boolean).join(" -> ");
 }
 
 function inputVisual(id) {
@@ -558,6 +625,7 @@ function startGame() {
   state.cueTimerStartedAt = 0;
   state.cueTimerDelay = 0;
   state.responseTimer = null;
+  state.cueVisibilityTimer = null;
   resetPauseState();
   state.trials = [];
   state.movementHistory = [];
@@ -584,12 +652,17 @@ function applyRouteEvents(cells, settings) {
   let previousGroup = null;
 
   cells.forEach((cell, index) => {
-    const displayKey = randomRightInput(previousGroup, settings, { requireReversePair: cell.type === "reverse" });
-    previousGroup = inputGroup(displayKey, settings);
+    const displayKeys = randomRightInputSequence(
+      getSequenceLengthForCell(index, settings),
+      previousGroup,
+      settings,
+      { requireReversePair: cell.type === "reverse" },
+    );
+    previousGroup = inputGroup(displayKeys[displayKeys.length - 1], settings);
     cell.delayMs = delays[index];
     cell.displayedInstruction = {
       light: Math.random() * 100 < settings.redRate ? "red" : "green",
-      displayKey,
+      displayKeys,
     };
   });
 
@@ -657,6 +730,7 @@ function placeZones(cells, type, count, minLength, maxLength) {
 
 function scheduleStimulus() {
   clearResponseTimer();
+  clearCueVisibilityTimer();
   clearCueTimer();
   state.phase = "waiting";
   state.currentStimulus = null;
@@ -672,10 +746,11 @@ function queueNextStimulus() {
 function showStimulus() {
   if (state.isPaused) return;
   clearResponseTimer();
+  clearCueVisibilityTimer();
   const routeCell = getCurrentRouteCell();
   if (!routeCell) return;
-  const displayedInstruction = { ...routeCell.displayedInstruction };
-  const requiredInstruction = { ...routeCell.requiredInstruction };
+  const displayedInstruction = cloneInstruction(routeCell.displayedInstruction);
+  const requiredInstruction = cloneInstruction(routeCell.requiredInstruction);
   const rule = routeCell.type;
   const stimulusId = state.stimulusId + 1;
   state.stimulusId = stimulusId;
@@ -686,14 +761,35 @@ function showStimulus() {
     requiredInstruction,
     rule,
     responded: false,
+    stepIndex: 0,
+    stepReactionTimes: [],
+    targetVisible: true,
     startPosition: state.boardPosition,
   };
-  state.stimulusStartedAt = performance.now();
-  startVisualTimer(state.settings.responseWindow);
+  state.cueVisibleStartedAt = performance.now();
   playSound("cue");
   setMessage(stimulusMessage(state.currentStimulus), requiredInstruction.light === "green" ? "good" : "bad");
+  startCueVisibilityTimer(stimulusId, state.settings.cueVisibleMs);
+  startResponseStep(stimulusId, 0);
+}
+
+function cloneInstruction(instruction) {
+  return {
+    ...instruction,
+    displayKeys: instructionDisplayKeys(instruction),
+    effectiveKeys: instructionEffectiveKeys(instruction),
+  };
+}
+
+function startResponseStep(stimulusId, stepIndex, elapsed = 0) {
+  const stimulus = state.currentStimulus;
+  if (!stimulus || stimulus.id !== stimulusId || stimulus.responded) return;
+  clearResponseTimer();
+  stimulus.stepIndex = stepIndex;
+  state.stimulusStartedAt = performance.now() - elapsed;
+  startVisualTimer(state.settings.responseWindow, elapsed);
   render();
-  startResponseTimer(stimulusId, state.settings.responseWindow);
+  startResponseTimer(stimulusId, state.settings.responseWindow - elapsed);
 }
 
 function startResponseTimer(stimulusId, delay) {
@@ -715,7 +811,30 @@ function startResponseTimer(stimulusId, delay) {
       success: required.light === "red",
       reactionTime: state.settings.responseWindow,
     });
-  }, delay);
+  }, Math.max(0, delay));
+}
+
+function startCueVisibilityTimer(stimulusId, delay) {
+  clearCueVisibilityTimer();
+  if (delay <= 0) {
+    hideCurrentTarget(stimulusId);
+    return;
+  }
+  state.cueVisibilityTimer = setTimer(() => hideCurrentTarget(stimulusId), delay);
+}
+
+function hideCurrentTarget(stimulusId) {
+  if (
+    state.phase !== "rightStimulus" ||
+    !state.currentStimulus ||
+    state.currentStimulus.id !== stimulusId ||
+    state.currentStimulus.responded
+  ) {
+    return;
+  }
+  state.cueVisibilityTimer = null;
+  state.currentStimulus.targetVisible = false;
+  render();
 }
 
 function togglePause() {
@@ -750,7 +869,9 @@ function pauseGame() {
 
   if (state.phase === "rightStimulus") {
     state.responseElapsedBeforePause = Math.min(state.settings.responseWindow, Math.max(0, now - state.stimulusStartedAt));
+    state.cueVisibilityElapsedBeforePause = Math.min(state.settings.cueVisibleMs, Math.max(0, now - state.cueVisibleStartedAt));
     clearResponseTimer();
+    clearCueVisibilityTimer();
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = null;
     state.timerPercent = Math.min(100, (state.responseElapsedBeforePause / state.settings.responseWindow) * 100);
@@ -771,14 +892,17 @@ function resumeGame() {
 
   if (pausedPhase === "rightStimulus" && state.currentStimulus && !state.currentStimulus.responded) {
     const elapsed = Math.min(state.settings.responseWindow, Math.max(0, state.responseElapsedBeforePause));
-    const remaining = Math.max(0, state.settings.responseWindow - elapsed);
-    state.stimulusStartedAt = performance.now() - elapsed;
-    startVisualTimer(state.settings.responseWindow, elapsed);
-    startResponseTimer(state.currentStimulus.id, remaining);
+    if (state.currentStimulus.targetVisible) {
+      const visibilityElapsed = Math.min(state.settings.cueVisibleMs, Math.max(0, state.cueVisibilityElapsedBeforePause));
+      state.cueVisibleStartedAt = performance.now() - visibilityElapsed;
+      startCueVisibilityTimer(state.currentStimulus.id, state.settings.cueVisibleMs - visibilityElapsed);
+    }
+    startResponseStep(state.currentStimulus.id, state.currentStimulus.stepIndex, elapsed);
   }
 
   state.cueRemainingMs = 0;
   state.responseElapsedBeforePause = 0;
+  state.cueVisibilityElapsedBeforePause = 0;
   render();
 }
 
@@ -798,29 +922,43 @@ function getCurrentDelay() {
 function getRequiredInstruction(displayedInstruction, rule, previousDisplayedInstruction = null, settings = state.settings) {
   if (rule === "nback1") {
     const previous = previousDisplayedInstruction || displayedInstruction;
+    const previousDisplayKeys = instructionDisplayKeys(previous);
     return {
       light: previous.light,
-      displayKey: previous.displayKey,
-      effectiveKey: previous.light === "green" ? previous.displayKey : null,
+      displayKeys: previousDisplayKeys,
+      effectiveKeys: previous.light === "green" ? [...previousDisplayKeys] : [],
       source: "previous",
     };
   }
+  const displayKeys = instructionDisplayKeys(displayedInstruction);
   if (displayedInstruction.light === "red") {
-    return { light: "red", displayKey: displayedInstruction.displayKey, effectiveKey: null, source: "current" };
+    return { light: "red", displayKeys, effectiveKeys: [], source: "current" };
   }
   return {
     light: "green",
-    displayKey: displayedInstruction.displayKey,
-    effectiveKey: rule === "reverse" ? reverseInput(displayedInstruction.displayKey, settings) : displayedInstruction.displayKey,
+    displayKeys,
+    effectiveKeys: rule === "reverse" ? displayKeys.map((input) => reverseInput(input, settings)) : [...displayKeys],
     source: "current",
   };
+}
+
+function instructionDisplayKeys(instruction) {
+  if (!instruction) return [];
+  if (Array.isArray(instruction.displayKeys)) return instruction.displayKeys.filter(Boolean);
+  return instruction.displayKey ? [instruction.displayKey] : [];
+}
+
+function instructionEffectiveKeys(instruction) {
+  if (!instruction || instruction.light === "red") return [];
+  if (Array.isArray(instruction.effectiveKeys)) return instruction.effectiveKeys.filter(Boolean);
+  return instruction.effectiveKey ? [instruction.effectiveKey] : [];
 }
 
 function stimulusMessage(stimulus) {
   const required = stimulus.requiredInstruction;
   if (stimulus.rule === "nback1") {
     if (required.light === "red") return "1-back: the previous cue was NO-GO. Do not press.";
-    return `1-back: press the previous cue, ${inputLabel(required.effectiveKey)}.`;
+    return `1-back: press the previous cue sequence, ${inputSequenceLabel(instructionEffectiveKeys(required))}.`;
   }
   if (required.light === "red") return "NO-GO: stay still and do not press.";
   if (stimulus.rule === "reverse") return "Reverse zone: press the matching slot in the other group.";
@@ -851,9 +989,16 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   const stimulus = state.currentStimulus;
   if (!stimulus || stimulus.responded) return;
   clearResponseTimer();
+  clearCueVisibilityTimer();
   stimulus.responded = true;
   const fromPosition = state.boardPosition;
-  const displayedGroup = inputGroup(stimulus.displayedInstruction.displayKey);
+  const displayedKeys = instructionDisplayKeys(stimulus.displayedInstruction);
+  const requiredKeys = instructionEffectiveKeys(stimulus.requiredInstruction);
+  const displayedGroups = displayedKeys.map((key) => inputGroup(key));
+  const reactionTimes = [...stimulus.stepReactionTimes];
+  if (success && stimulus.requiredInstruction.light === "green" && Number.isFinite(reactionTime)) {
+    reactionTimes.push(reactionTime);
+  }
 
   if (success) {
     state.score += stimulus.requiredInstruction.light === "red" ? 120 : 100;
@@ -875,12 +1020,17 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     fromPosition,
     toPosition: state.boardPosition,
     displayedLight: stimulus.displayedInstruction.light,
-    displayedKey: stimulus.displayedInstruction.displayKey,
-    displayedGroup,
+    displayedKey: displayedKeys[0] || null,
+    displayedKeys,
+    displayedGroup: displayedGroups[0] || null,
+    displayedGroups,
     requiredLight: stimulus.requiredInstruction.light,
-    requiredKey: stimulus.requiredInstruction.effectiveKey,
+    requiredKey: requiredKeys[0] || null,
+    requiredKeys,
     input,
     reactionTime: Math.round(reactionTime),
+    reactionTimes: reactionTimes.map((time) => Math.round(time)),
+    completedSteps: stimulus.requiredInstruction.light === "green" ? reactionTimes.length : 0,
     result,
     success,
   });
@@ -967,10 +1117,26 @@ function handleRightInput(input) {
     finishRightTrial({ input, result: "falseAlarm", success: false, reactionTime });
     return;
   }
+  const requiredKeys = instructionEffectiveKeys(required);
+  const stepIndex = stimulus.stepIndex || 0;
+  const expectedInput = requiredKeys[stepIndex];
+  if (input !== expectedInput) {
+    finishRightTrial({ input, result: "wrongGo", success: false, reactionTime });
+    return;
+  }
+  if (stepIndex < requiredKeys.length - 1) {
+    stimulus.stepReactionTimes.push(reactionTime);
+    playSound("success");
+    clearCueVisibilityTimer();
+    stimulus.targetVisible = false;
+    setMessage(`Correct key ${stepIndex + 1}/${requiredKeys.length}. Continue the sequence.`, "good");
+    startResponseStep(stimulus.id, stepIndex + 1);
+    return;
+  }
   finishRightTrial({
     input,
-    result: input === required.effectiveKey ? "goSuccess" : "wrongGo",
-    success: input === required.effectiveKey,
+    result: "goSuccess",
+    success: true,
     reactionTime,
   });
 }
@@ -1001,7 +1167,7 @@ function getMetrics() {
   const noGoErrors = noGoTrials.filter((trial) => trial.result === "falseAlarm").length;
   const goReactionTimes = goTrials
     .filter((trial) => trial.result === "goSuccess")
-    .map((trial) => trial.reactionTime);
+    .flatMap((trial) => (Array.isArray(trial.reactionTimes) && trial.reactionTimes.length ? trial.reactionTimes : [trial.reactionTime]));
   const avgRt =
     goReactionTimes.length === 0
       ? 0
@@ -1024,7 +1190,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V3 forest route training: static route cues move the explorer forward or backward while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V3.2 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
@@ -1058,6 +1224,10 @@ function renderConfig() {
             ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
             ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
             ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
+            ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
+            ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.ceil(MAX_PATH_LENGTH / ROUTE_PAGE_SIZE), 1)}
+            ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
+            ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
             ${numberField("pathLength", "Path length", s.pathLength, 8, MAX_PATH_LENGTH, 1)}
             ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
             ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
@@ -1355,8 +1525,11 @@ function renderStimulus() {
   const stimulus = state.currentStimulus;
   const isActive = state.phase === "rightStimulus";
   const displayed = isActive ? stimulus.displayedInstruction : null;
+  const displayedKeys = displayed ? instructionDisplayKeys(displayed) : [];
   const light = displayed?.light || "green";
   const targetContent = getTargetContent();
+  const stepLabel = getStimulusStepLabel(stimulus);
+  const showActiveKeys = isActive && stimulus?.targetVisible;
   return `
     <section class="stimulus-panel">
       <div class="panel-header">
@@ -1365,14 +1538,15 @@ function renderStimulus() {
       </div>
       <div class="stimulus-main">
         <div class="traffic ${light === "red" ? "red" : ""}">${isActive ? (light === "red" ? "NO-GO" : "GO") : "READY"}</div>
-        <div class="target-key ${isActive ? "" : "wait"}">${targetContent}</div>
+        <div class="target-key ${isActive ? `active-target ${stimulus.targetVisible ? "" : "hidden-target"}` : "wait"}" style="--cue-visible-ms:${state.settings.cueVisibleMs}ms">${targetContent}</div>
+        <div class="sequence-progress">${stepLabel}</div>
         <div class="poison-note">${ruleNote(stimulus)}</div>
         <div class="timer"><div class="timer-fill" style="width:${state.timerPercent}%"></div></div>
       </div>
       <div class="controls-strip">
         ${getConfiguredInputs().map(
           (input) =>
-            `<div class="key-chip ${isActive && displayed?.displayKey === input.id ? "active" : ""}">${inputVisual(input.id)}</div>`,
+            `<div class="key-chip ${showActiveKeys && displayedKeys.includes(input.id) ? "active" : ""}">${inputVisual(input.id)}</div>`,
         ).join("")}
       </div>
     </section>
@@ -1382,7 +1556,23 @@ function renderStimulus() {
 function getTargetContent() {
   if (state.phase === "waiting") return "Ready...";
   if (!state.currentStimulus) return "Ready";
-  return inputVisual(state.currentStimulus.displayedInstruction.displayKey);
+  const keys = instructionDisplayKeys(state.currentStimulus.displayedInstruction);
+  return `
+    <div class="target-sequence">
+      ${keys.map((key, index) => `
+        <span class="target-sequence-item ${index === state.currentStimulus.stepIndex ? "current-step" : ""}">
+          ${inputVisual(key)}
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function getStimulusStepLabel(stimulus) {
+  if (!stimulus || state.phase !== "rightStimulus") return "";
+  const requiredKeys = instructionEffectiveKeys(stimulus.requiredInstruction);
+  if (stimulus.requiredInstruction.light === "red") return "NO-GO window";
+  return `Key ${Math.min(requiredKeys.length, stimulus.stepIndex + 1)}/${requiredKeys.length}`;
 }
 
 function ruleNote(stimulus) {
@@ -1391,7 +1581,7 @@ function ruleNote(stimulus) {
   if (stimulus.rule === "nback1") {
     const required = stimulus.requiredInstruction;
     if (required.light === "red") return "Blue zone: do the previous cue, which was NO-GO";
-    return `Blue zone: do the previous cue, ${inputLabel(required.effectiveKey)}`;
+    return `Blue zone: do the previous cue, ${inputSequenceLabel(instructionEffectiveKeys(required))}`;
   }
   return "";
 }
