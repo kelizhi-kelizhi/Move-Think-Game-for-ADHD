@@ -572,6 +572,16 @@ h1 {
   background: var(--green);
 }
 
+.traffic.ready {
+  color: #2b1e02;
+  background: var(--gold);
+}
+
+.traffic.go {
+  color: #07140d;
+  background: var(--green);
+}
+
 .traffic.red {
   color: #23070a;
   background: var(--red);
@@ -608,10 +618,6 @@ h1 {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.target-key.active-target .target-sequence {
-  animation: target-memory-fade 180ms ease var(--cue-visible-ms) forwards;
-}
-
 .target-key.hidden-target .target-sequence {
   opacity: 0;
   transform: translateY(4px);
@@ -636,6 +642,19 @@ h1 {
 
 .target-sequence .key-visual {
   font-size: 34px;
+}
+
+.target-sequence .cue-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.16em;
+  white-space: nowrap;
+}
+
+.target-sequence .cue-arrow {
+  font-size: 0.82em;
+  line-height: 1;
 }
 
 .target-key .mouse-visual {
@@ -679,13 +698,6 @@ h1 {
   background: var(--cyan);
 }
 
-@keyframes target-memory-fade {
-  to {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
 .controls-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -726,7 +738,7 @@ h1 {
 }
 
 .summary-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .metric-value {
@@ -803,35 +815,6 @@ h1 {
 .pause-modal strong {
   margin-top: 10px;
   font-size: 16px;
-}
-
-.game-screen .hand-hud {
-  display: grid;
-  gap: 6px;
-}
-
-.hand-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.hand-side {
-  min-height: 28px;
-  display: grid;
-  place-items: center;
-  border: 3px solid #18132f;
-  color: #5a4a2d;
-  background: #fff8df;
-  font-size: 13px;
-  font-weight: 950;
-  text-transform: uppercase;
-}
-
-.hand-side.active {
-  color: #18132f;
-  background: #31d07c;
-  box-shadow: 3px 3px 0 #18132f;
 }
 
 .game-screen .panel-header {
@@ -1105,6 +1088,16 @@ h1 {
   color: #102411;
   background: #31d07c;
   box-shadow: 5px 5px 0 #18132f;
+}
+
+.game-screen .traffic.ready {
+  color: #2b1e02;
+  background: #ffd166;
+}
+
+.game-screen .traffic.go {
+  color: #102411;
+  background: #31d07c;
 }
 
 .game-screen .traffic.red {

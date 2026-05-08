@@ -20,16 +20,30 @@ const DEFAULT_INPUT_GROUPS = {
 
 const EMPTY_INPUT_OPTION = { id: "", label: "Empty" };
 
-const ROUTE_PAGE_SIZE = 42;
 const MAX_PATH_LENGTH = 420;
+const DEFAULT_ROUTE_PAGE_SIZE = 42;
+const MIN_ROUTE_PAGE_SIZE = 8;
+const MAX_ROUTE_PAGE_SIZE = 84;
+const MAX_ROUTE_PAGE_COUNT = 20;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
+const SOUND_STORAGE_KEY = "moveThinkSoundSettingsV1";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 const DEFAULT_CUE_VISIBLE_MS = 750;
+const DEFAULT_SOUND_VOLUME = 0.28;
+const MAX_SOUND_VOLUME = 2;
 const DEFAULT_SEQUENCE_START_PAGE = 2;
 const DEFAULT_SEQUENCE_INCREMENT_PAGES = 1;
 const DEFAULT_MAX_SEQUENCE_LENGTH = 3;
 const MAX_SEQUENCE_LENGTH = 12;
+const SLOT_VOICE_DELAY_MS = 50;
+const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
+const SLOT_AUDIO_PATHS = {
+  A1: "assets/audio/a1.mp3",
+  A2: "assets/audio/a2.mp3",
+  B1: "assets/audio/b1.mp3",
+  B2: "assets/audio/b2.mp3",
+};
 
 const SYSTEM_PRESETS = {
   easy: {
@@ -41,15 +55,17 @@ const SYSTEM_PRESETS = {
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1800,
     cueVisibleMs: 950,
+    slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
     sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
     maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
+    routePageSize: 18,
+    routePageCount: 1,
     pathLength: 18,
     redRate: 25,
     reverseZones: 1,
     nbackZones: 1,
     abAlternation: 0,
-    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
   normal: {
@@ -61,15 +77,17 @@ const SYSTEM_PRESETS = {
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1500,
     cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
+    slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
     sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
     maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
+    routePageSize: 24,
+    routePageCount: 1,
     pathLength: 24,
     redRate: 30,
     reverseZones: 2,
     nbackZones: 1,
     abAlternation: 0,
-    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
   hard: {
@@ -81,15 +99,17 @@ const SYSTEM_PRESETS = {
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1100,
     cueVisibleMs: 550,
+    slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
     sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
     maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
+    routePageSize: 30,
+    routePageCount: 1,
     pathLength: 30,
     redRate: 35,
     reverseZones: 2,
     nbackZones: 2,
     abAlternation: 0,
-    startHand: "left",
     ...DEFAULT_INPUT_GROUPS,
   },
 };
@@ -107,30 +127,34 @@ const SETTING_HELP = {
   delayBalance: "0 makes each wait block independently random. 1 spreads the wait values evenly across the interval range, then shuffles them.",
   delayColorStrength: "Controls how strongly route spaces show wait time. 0 hides the effect; 1 makes short waits lighter and long waits darker.",
   responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
-  cueVisibleMs: "How long the right-side target keys stay visible before fading out. Must be shorter than the response window.",
+  cueVisibleMs: "How long the target keys stay visible before fading out. Must be shorter than the response window.",
+  slotVoiceEnabled: "Whether to play A1, B1, A2, and B2 voice cues during the response window.",
   sequenceStartPage: "First route page where the target sequence starts growing beyond one key.",
   sequenceIncrementPages: "How many pages pass before the target sequence gains another key.",
   maxSequenceLength: "Maximum number of keys that can appear in one route-space sequence.",
-  pathLength: "Number of route spaces from start to finish. Long routes are shown one 42-space page at a time.",
+  routePageSize: "Number of route spaces shown on each page.",
+  routePageCount: "Total number of route pages. Total route spaces equal page size multiplied by page count.",
   redRate: "Chance that a generated cue is NO-GO.",
   reverseZones: "Number of purple route segments where green targets use the matching slot in the other input group.",
   nbackZones: "Number of blue route segments where the required action comes from the previous route space's generated cue.",
   abAlternation: "Controls how strongly generated cues switch between input group A and group B.",
-  startHand: "Which hand starts the first half of the route. The second half switches to the other hand.",
   groupAKey1: "First input assigned to group A. In reverse zones, this maps to group B key 1.",
   groupAKey2: "Optional second input assigned to group A. In reverse zones, this maps to group B key 2.",
   groupBKey1: "First input assigned to group B. In reverse zones, this maps to group A key 1.",
   groupBKey2: "Optional second input assigned to group B. In reverse zones, this maps to group A key 2.",
 };
 
+const savedSoundSettings = loadSoundSettings();
+
 const state = {
   screen: "config",
   selectedPresetId: "normal",
   settings: { ...SYSTEM_PRESETS.normal },
   customPresets: loadCustomPresets(),
-  soundEnabled: true,
-  soundVolume: 0.28,
+  soundEnabled: savedSoundSettings.soundEnabled,
+  soundVolume: savedSoundSettings.soundVolume,
   audioContext: null,
+  slotAudio: null,
   pointerLockReleaseExpected: false,
   phase: "idle",
   score: 0,
@@ -141,7 +165,6 @@ const state = {
   playerStepping: false,
   stepDirection: "",
   visitedCells: new Set(),
-  activeHand: "left",
   currentStimulus: null,
   stimulusId: 0,
   cueTimer: null,
@@ -163,29 +186,53 @@ const state = {
   messageTone: "",
   trials: [],
   movementHistory: [],
+  sessionStartedAt: 0,
+  sessionEndedAt: 0,
   timers: new Set(),
   raf: null,
 };
 
 function cleanPreset(preset) {
+  const fallbackLength = clampNumber(preset.pathLength, MIN_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH, 24);
+  const routePageSize = Math.round(
+    clampNumber(
+      preset.routePageSize,
+      MIN_ROUTE_PAGE_SIZE,
+      Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH),
+      Math.min(DEFAULT_ROUTE_PAGE_SIZE, fallbackLength),
+    ),
+  );
+  const maxPagesForSize = Math.max(1, Math.floor(MAX_PATH_LENGTH / routePageSize));
+  const maxRoutePageCount = Math.min(MAX_ROUTE_PAGE_COUNT, maxPagesForSize);
+  const routePageCount = Math.round(
+    clampNumber(
+      preset.routePageCount,
+      1,
+      maxRoutePageCount,
+      Math.max(1, Math.ceil(fallbackLength / routePageSize)),
+    ),
+  );
+  const pathLength = routePageSize * routePageCount;
   const cleaned = {
     label: preset.label,
     baseInterval: clampNumber(preset.baseInterval, 400, 4000, 1500),
     jitter: clampNumber(preset.jitter, 0, 2000, 450),
-    delayBlockSize: clampNumber(preset.delayBlockSize, 1, MAX_PATH_LENGTH, 1),
+    delayBlockSize: clampNumber(preset.delayBlockSize, 1, pathLength, 1),
     delayBalance: clampNumber(preset.delayBalance, 0, 1, 0),
     delayColorStrength: clampNumber(preset.delayColorStrength, 0, 1, DEFAULT_DELAY_COLOR_STRENGTH),
     responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
     cueVisibleMs: 0,
-    sequenceStartPage: clampNumber(preset.sequenceStartPage, 1, Math.ceil(MAX_PATH_LENGTH / ROUTE_PAGE_SIZE), DEFAULT_SEQUENCE_START_PAGE),
+    slotVoiceEnabled: preset.slotVoiceEnabled === false ? false : true,
+    sequenceStartPage: clampNumber(preset.sequenceStartPage, 1, maxRoutePageCount, DEFAULT_SEQUENCE_START_PAGE),
     sequenceIncrementPages: clampNumber(preset.sequenceIncrementPages, 1, 20, DEFAULT_SEQUENCE_INCREMENT_PAGES),
     maxSequenceLength: clampNumber(preset.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, DEFAULT_MAX_SEQUENCE_LENGTH),
-    pathLength: clampNumber(preset.pathLength, 8, MAX_PATH_LENGTH, 24),
+    routePageSize,
+    routePageCount,
+    pathLength,
     redRate: clampNumber(preset.redRate, 0, 80, 30),
     reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
     nbackZones: clampNumber(preset.nbackZones, 0, 6, 1),
     abAlternation: clampNumber(preset.abAlternation, 0, 1, 0),
-    startHand: preset.startHand === "right" ? "right" : "left",
     groupAKey1: preset.groupAKey1,
     groupAKey2: preset.groupAKey2,
     groupBKey1: preset.groupBKey1,
@@ -241,7 +288,13 @@ function loadCustomPresets() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     return CUSTOM_IDS.reduce((presets, id) => {
-      presets[id] = cleanPreset({ ...defaults[id], ...(parsed[id] || {}), label: CUSTOM_LABELS[id] });
+      const saved = parsed[id] || {};
+      const merged = { ...defaults[id], ...saved, label: CUSTOM_LABELS[id] };
+      if (saved.pathLength && saved.routePageSize === undefined && saved.routePageCount === undefined) {
+        delete merged.routePageSize;
+        delete merged.routePageCount;
+      }
+      presets[id] = cleanPreset(merged);
       return presets;
     }, {});
   } catch {
@@ -251,6 +304,28 @@ function loadCustomPresets() {
 
 function saveCustomPresets() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customPresets));
+}
+
+function loadSoundSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOUND_STORAGE_KEY) || "{}");
+    return {
+      soundEnabled: parsed.soundEnabled === false ? false : true,
+      soundVolume: clampNumber(parsed.soundVolume, 0, MAX_SOUND_VOLUME, DEFAULT_SOUND_VOLUME),
+    };
+  } catch {
+    return { soundEnabled: true, soundVolume: DEFAULT_SOUND_VOLUME };
+  }
+}
+
+function saveSoundSettings() {
+  localStorage.setItem(
+    SOUND_STORAGE_KEY,
+    JSON.stringify({
+      soundEnabled: state.soundEnabled,
+      soundVolume: state.soundVolume,
+    }),
+  );
 }
 
 function ensureAudio() {
@@ -284,6 +359,8 @@ function playSound(kind) {
   const now = context.currentTime;
   if (kind === "cue") {
     playTone(660, now, 0.07, "triangle", 0.42);
+  } else if (kind === "nogoCue") {
+    playTone(460, now, 0.075, "triangle", 0.4);
   } else if (kind === "step") {
     playTone(784, now, 0.06, "square", 0.35);
     playTone(988, now + 0.06, 0.07, "square", 0.28);
@@ -311,21 +388,82 @@ function getSpeechVoice() {
   );
 }
 
-function speakHandCue(hand) {
-  if (!state.soundEnabled) return;
+function speakSlotSequence(keys, onEnd) {
+  if (!state.soundEnabled) return false;
+  if (!state.settings.slotVoiceEnabled) return false;
+  if (playSlotAudioSequence(keys, onEnd, () => speakSlotSequenceFallback(keys, onEnd))) return true;
+  return speakSlotSequenceFallback(keys, onEnd);
+}
+
+function speakSlotSequenceFallback(keys, onEnd) {
+  const spoken = keys.map(inputSlotSpeechLabel).filter(Boolean).join(", ");
+  if (!spoken) return false;
   if (!("speechSynthesis" in window) || !window.SpeechSynthesisUtterance) {
     playSound("cue");
-    return;
+    return false;
   }
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(hand === "left" ? "left hand" : "right hand");
+  const utterance = new SpeechSynthesisUtterance(spoken);
   const voice = getSpeechVoice();
   if (voice) utterance.voice = voice;
   utterance.lang = voice?.lang || "en-US";
-  utterance.rate = 0.92;
-  utterance.pitch = 0.82;
+  utterance.rate = 0.82;
+  utterance.pitch = 0.9;
   utterance.volume = Math.max(0, Math.min(1, state.soundVolume));
+  utterance.onend = () => {
+    if (typeof onEnd === "function") onEnd();
+  };
+  utterance.onerror = () => {
+    if (typeof onEnd === "function") onEnd();
+  };
   window.speechSynthesis.speak(utterance);
+  return true;
+}
+
+function playSlotAudioSequence(keys, onEnd, onFail) {
+  if (!window.Audio) return false;
+  const sources = keys.map((key) => SLOT_AUDIO_PATHS[inputSlotLabel(key)]).filter(Boolean);
+  if (!sources.length) return false;
+  stopSlotAudio();
+  let index = 0;
+  let failed = false;
+  const failSequence = () => {
+    if (failed) return;
+    failed = true;
+    stopSlotAudio();
+    if (typeof onFail === "function") onFail();
+  };
+  const playNext = () => {
+    if (index >= sources.length) {
+      state.slotAudio = null;
+      if (typeof onEnd === "function") onEnd();
+      return;
+    }
+    const audio = new Audio(sources[index]);
+    state.slotAudio = audio;
+    index += 1;
+    audio.playbackRate = SLOT_AUDIO_PLAYBACK_RATE;
+    audio.volume = Math.max(0, Math.min(1, state.soundVolume));
+    audio.onended = playNext;
+    audio.onerror = failSequence;
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(failSequence);
+    }
+  };
+  playNext();
+  return true;
+}
+
+function stopSlotAudio() {
+  if (state.slotAudio) {
+    state.slotAudio.onended = null;
+    state.slotAudio.onerror = null;
+    state.slotAudio.pause();
+    state.slotAudio.currentTime = 0;
+    state.slotAudio = null;
+  }
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
 function allPresets() {
@@ -338,6 +476,7 @@ function clearTimers() {
   state.cueTimer = null;
   state.responseTimer = null;
   state.cueVisibilityTimer = null;
+  stopSlotAudio();
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   if (state.raf) cancelAnimationFrame(state.raf);
   state.raf = null;
@@ -470,12 +609,16 @@ function randomRightInputSequence(length, previousGroup = null, settings = state
 }
 
 function getSequenceLengthForCell(index, settings = state.settings) {
-  const page = Math.floor(index / ROUTE_PAGE_SIZE) + 1;
+  const page = Math.floor(index / getRoutePageSize(settings)) + 1;
   const startPage = Math.max(1, Math.round(settings.sequenceStartPage));
   const incrementPages = Math.max(1, Math.round(settings.sequenceIncrementPages));
   const maxLength = Math.max(1, Math.round(settings.maxSequenceLength));
   if (page < startPage) return 1;
   return Math.min(maxLength, 2 + Math.floor((page - startPage) / incrementPages));
+}
+
+function getRoutePageSize(settings = state.settings) {
+  return Math.max(MIN_ROUTE_PAGE_SIZE, Math.round(settings.routePageSize || DEFAULT_ROUTE_PAGE_SIZE));
 }
 
 function getInputCandidates(settings = state.settings, options = {}) {
@@ -513,7 +656,7 @@ function inputLabel(id) {
 }
 
 function inputSequenceLabel(ids) {
-  return ids.map(inputLabel).filter(Boolean).join(" -> ");
+  return ids.map(inputSlotLabel).filter(Boolean).join(" -> ");
 }
 
 function inputVisual(id) {
@@ -528,6 +671,38 @@ function inputVisual(id) {
     `;
   }
   return `<span class="input-visual key-visual">${inputLabel(id)}</span>`;
+}
+
+function slotVisual(id) {
+  return `<span class="input-visual key-visual slot-visual">${inputSlotLabel(id)}</span>`;
+}
+
+function cueSlotVisual(id) {
+  const label = inputSlotLabel(id);
+  if (label.startsWith("A")) {
+    return `<span class="input-visual key-visual slot-visual cue-slot"><span class="cue-arrow">←</span><span>${label}</span></span>`;
+  }
+  if (label.startsWith("B")) {
+    return `<span class="input-visual key-visual slot-visual cue-slot"><span>${label}</span><span class="cue-arrow">→</span></span>`;
+  }
+  return slotVisual(id);
+}
+
+function inputSlotLabel(id, settings = state.settings) {
+  const groups = cleanInputGroups(settings);
+  const slots = [
+    ["groupAKey1", "A1"],
+    ["groupAKey2", "A2"],
+    ["groupBKey1", "B1"],
+    ["groupBKey2", "B2"],
+  ];
+  const match = slots.find(([key]) => groups[key] === id);
+  return match?.[1] || inputLabel(id);
+}
+
+function inputSlotSpeechLabel(id) {
+  const label = inputSlotLabel(id);
+  return label.replace(/^([AB])(\d+)$/, (_, group, slot) => `${group} ${slot === "1" ? "one" : "two"}`);
 }
 
 function isRightInput(input) {
@@ -579,18 +754,44 @@ function updateSetting(key, value) {
     render();
     return;
   }
-  if (key === "startHand") {
-    state.settings[key] = value;
+  if (key === "slotVoiceEnabled") {
+    state.settings[key] = value === true || value === "true";
     state.settings = cleanPreset(state.settings);
+    if (!state.settings[key]) stopSlotAudio();
     render();
+    return;
+  }
+  if (key === "routePageSize" || key === "routePageCount") {
+    state.settings[key] = Number(value);
+    syncRouteSettingLimits();
     return;
   }
   state.settings[key] = Number(value);
 }
 
+function syncRouteSettingLimits() {
+  const routePageSize = Math.round(
+    clampNumber(
+      state.settings.routePageSize,
+      MIN_ROUTE_PAGE_SIZE,
+      Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH),
+      DEFAULT_ROUTE_PAGE_SIZE,
+    ),
+  );
+  const maxRoutePages = Math.min(MAX_ROUTE_PAGE_COUNT, Math.max(1, Math.floor(MAX_PATH_LENGTH / routePageSize)));
+  const routePageCountInput = document.getElementById("routePageCount");
+  const sequenceStartPageInput = document.getElementById("sequenceStartPage");
+  if (routePageCountInput) routePageCountInput.max = String(maxRoutePages);
+  if (sequenceStartPageInput) sequenceStartPageInput.max = String(maxRoutePages);
+}
+
 function updateSoundSetting(key, value) {
   if (key === "soundEnabled") state.soundEnabled = value;
-  if (key === "soundVolume") state.soundVolume = Number(value);
+  if (key === "soundVolume") state.soundVolume = clampNumber(value, 0, MAX_SOUND_VOLUME, DEFAULT_SOUND_VOLUME);
+  if (state.slotAudio) {
+    state.slotAudio.volume = Math.max(0, Math.min(1, state.soundVolume));
+  }
+  saveSoundSettings();
 }
 
 function saveCurrentPreset() {
@@ -618,7 +819,6 @@ function startGame() {
   state.playerStepping = false;
   state.stepDirection = "";
   state.visitedCells = new Set([0]);
-  state.activeHand = getHandForPosition(0);
   state.currentStimulus = null;
   state.stimulusId = 0;
   state.cueTimer = null;
@@ -629,9 +829,10 @@ function startGame() {
   resetPauseState();
   state.trials = [];
   state.movementHistory = [];
-  setMessage("Ready... wait for the right-side cue.", "");
+  state.sessionStartedAt = Date.now();
+  state.sessionEndedAt = 0;
+  setMessage("Ready... wait for the target cue.", "");
   render();
-  speakHandCue(state.activeHand);
   scheduleStimulus();
 }
 
@@ -732,6 +933,7 @@ function scheduleStimulus() {
   clearResponseTimer();
   clearCueVisibilityTimer();
   clearCueTimer();
+  stopSlotAudio();
   state.phase = "waiting";
   state.currentStimulus = null;
   state.timerPercent = 0;
@@ -747,30 +949,53 @@ function showStimulus() {
   if (state.isPaused) return;
   clearResponseTimer();
   clearCueVisibilityTimer();
-  const routeCell = getCurrentRouteCell();
-  if (!routeCell) return;
-  const displayedInstruction = cloneInstruction(routeCell.displayedInstruction);
-  const requiredInstruction = cloneInstruction(routeCell.requiredInstruction);
-  const rule = routeCell.type;
-  const stimulusId = state.stimulusId + 1;
-  state.stimulusId = stimulusId;
+  stopSlotAudio();
+  if (!state.currentStimulus || state.currentStimulus.responded) {
+    const routeCell = getCurrentRouteCell();
+    if (!routeCell) return;
+    const stimulusId = state.stimulusId + 1;
+    state.stimulusId = stimulusId;
+    state.currentStimulus = {
+      id: stimulusId,
+      displayedInstruction: cloneInstruction(routeCell.displayedInstruction),
+      requiredInstruction: cloneInstruction(routeCell.requiredInstruction),
+      rule: routeCell.type,
+      responded: false,
+      stepIndex: 0,
+      stepReactionTimes: [],
+      targetVisible: true,
+      startPosition: state.boardPosition,
+    };
+  }
+  const stimulusId = state.currentStimulus.id;
   state.phase = "rightStimulus";
-  state.currentStimulus = {
-    id: stimulusId,
-    displayedInstruction,
-    requiredInstruction,
-    rule,
-    responded: false,
-    stepIndex: 0,
-    stepReactionTimes: [],
-    targetVisible: true,
-    startPosition: state.boardPosition,
-  };
+  state.currentStimulus.stepIndex = 0;
   state.cueVisibleStartedAt = performance.now();
-  playSound("cue");
-  setMessage(stimulusMessage(state.currentStimulus), requiredInstruction.light === "green" ? "good" : "bad");
-  startCueVisibilityTimer(stimulusId, state.settings.cueVisibleMs);
+  playSound(state.currentStimulus.requiredInstruction.light === "red" ? "nogoCue" : "cue");
+  setMessage(
+    stimulusMessage(state.currentStimulus),
+    state.currentStimulus.requiredInstruction.light === "green" ? "good" : "bad",
+  );
+  syncTargetVisibility(stimulusId);
   startResponseStep(stimulusId, 0);
+  scheduleSlotVoice(stimulusId);
+}
+
+function scheduleSlotVoice(stimulusId) {
+  const keys = instructionDisplayKeys(state.currentStimulus?.displayedInstruction);
+  if (!keys.length) return;
+  setTimer(() => {
+    if (
+      state.phase !== "rightStimulus" ||
+      state.isPaused ||
+      !state.currentStimulus ||
+      state.currentStimulus.id !== stimulusId ||
+      state.currentStimulus.responded
+    ) {
+      return;
+    }
+    speakSlotSequence(keys);
+  }, SLOT_VOICE_DELAY_MS);
 }
 
 function cloneInstruction(instruction) {
@@ -823,6 +1048,19 @@ function startCueVisibilityTimer(stimulusId, delay) {
   state.cueVisibilityTimer = setTimer(() => hideCurrentTarget(stimulusId), delay);
 }
 
+function syncTargetVisibility(stimulusId) {
+  const stimulus = state.currentStimulus;
+  if (!stimulus || stimulus.id !== stimulusId) return;
+  const elapsed = Math.max(0, performance.now() - state.cueVisibleStartedAt);
+  const remaining = state.settings.cueVisibleMs - elapsed;
+  stimulus.targetVisible = remaining > 0;
+  if (remaining > 0) {
+    startCueVisibilityTimer(stimulusId, remaining);
+  } else {
+    clearCueVisibilityTimer();
+  }
+}
+
 function hideCurrentTarget(stimulusId) {
   if (
     state.phase !== "rightStimulus" ||
@@ -868,6 +1106,7 @@ function pauseGame() {
   }
 
   if (state.phase === "rightStimulus") {
+    stopSlotAudio();
     state.responseElapsedBeforePause = Math.min(state.settings.responseWindow, Math.max(0, now - state.stimulusStartedAt));
     state.cueVisibilityElapsedBeforePause = Math.min(state.settings.cueVisibleMs, Math.max(0, now - state.cueVisibleStartedAt));
     clearResponseTimer();
@@ -892,12 +1131,10 @@ function resumeGame() {
 
   if (pausedPhase === "rightStimulus" && state.currentStimulus && !state.currentStimulus.responded) {
     const elapsed = Math.min(state.settings.responseWindow, Math.max(0, state.responseElapsedBeforePause));
-    if (state.currentStimulus.targetVisible) {
-      const visibilityElapsed = Math.min(state.settings.cueVisibleMs, Math.max(0, state.cueVisibilityElapsedBeforePause));
-      state.cueVisibleStartedAt = performance.now() - visibilityElapsed;
-      startCueVisibilityTimer(state.currentStimulus.id, state.settings.cueVisibleMs - visibilityElapsed);
-    }
+    state.cueVisibleStartedAt = performance.now() - state.cueVisibilityElapsedBeforePause;
+    syncTargetVisibility(state.currentStimulus.id);
     startResponseStep(state.currentStimulus.id, state.currentStimulus.stepIndex, elapsed);
+    scheduleSlotVoice(state.currentStimulus.id);
   }
 
   state.cueRemainingMs = 0;
@@ -988,6 +1225,7 @@ function updateTimerDom() {
 function finishRightTrial({ input, result, success, reactionTime }) {
   const stimulus = state.currentStimulus;
   if (!stimulus || stimulus.responded) return;
+  stopSlotAudio();
   clearResponseTimer();
   clearCueVisibilityTimer();
   stimulus.responded = true;
@@ -1038,7 +1276,7 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   state.phase = "waiting";
   state.currentStimulus = null;
   state.timerPercent = 0;
-  setMessage("Ready... wait for the right-side cue.", "");
+  setMessage("Ready... wait for the target cue.", "");
   render();
   if (state.boardPosition >= state.boardCells.length - 1) {
     playSound("finish");
@@ -1069,27 +1307,13 @@ function errorMessage(result, stimulus) {
 function movePlayer(delta) {
   const from = state.boardPosition;
   const to = Math.max(0, Math.min(state.boardCells.length - 1, from + delta));
-  const fromHand = getHandForPosition(from);
-  const toHand = getHandForPosition(to);
   state.previousBoardPosition = from;
   state.boardPosition = to;
-  state.activeHand = toHand;
   state.stepDirection = delta > 0 ? "forward" : "back";
   state.visitedCells.add(to);
   state.movementHistory.push({ from, to, delta, time: Date.now() });
   triggerPlayerStep();
   if (to !== from) playSound("step");
-  if (to !== from && fromHand !== toHand) speakHandCue(toHand);
-}
-
-function getHandForPosition(position) {
-  const switchIndex = Math.floor(state.boardCells.length / 2);
-  const startHand = state.settings.startHand === "right" ? "right" : "left";
-  return position >= switchIndex ? oppositeHand(startHand) : startHand;
-}
-
-function oppositeHand(hand) {
-  return hand === "right" ? "left" : "right";
 }
 
 function triggerPlayerStep() {
@@ -1143,6 +1367,7 @@ function handleRightInput(input) {
 
 function finishSession() {
   clearTimers();
+  state.sessionEndedAt = Date.now();
   state.screen = "summary";
   state.phase = "sessionComplete";
   setMessage("Training complete.", "");
@@ -1176,7 +1401,22 @@ function getMetrics() {
   const nbackErrors = state.trials.filter((trial) => trial.rule === "nback1" && !trial.success).length;
   const hitRate = goTrials.length === 0 ? 0 : Math.round((goHits / goTrials.length) * 100);
   const progress = `${state.boardPosition + 1}/${state.boardCells.length}`;
-  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress };
+  const duration = formatSessionDuration(getSessionDurationMs());
+  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress, duration };
+}
+
+function getSessionDurationMs() {
+  if (!state.sessionStartedAt) return 0;
+  const endedAt = state.sessionEndedAt || Date.now();
+  return Math.max(0, endedAt - state.sessionStartedAt);
+}
+
+function formatSessionDuration(durationMs) {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function renderConfig() {
@@ -1190,7 +1430,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V3.2 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V5.0 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
@@ -1225,15 +1465,16 @@ function renderConfig() {
             ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
             ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
             ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
-            ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.ceil(MAX_PATH_LENGTH / ROUTE_PAGE_SIZE), 1)}
+            ${toggleField("slotVoiceEnabled", "Slot voice", s.slotVoiceEnabled)}
+            ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
+            ${numberField("routePageCount", "Route pages", s.routePageCount, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
+            ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
             ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
             ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
-            ${numberField("pathLength", "Path length", s.pathLength, 8, MAX_PATH_LENGTH, 1)}
             ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
             ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
             ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
             ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
-            ${handField("startHand", "Start hand", s.startHand)}
           </div>
         </div>
 
@@ -1254,7 +1495,7 @@ function renderConfig() {
           <label>Sound</label>
           <div class="sound-controls">
             <button type="button" class="${state.soundEnabled ? "active" : ""}" id="soundToggle">${state.soundEnabled ? "On" : "Off"}</button>
-            <input id="soundVolume" type="range" min="0" max="1" step="0.05" value="${state.soundVolume}" />
+            <input id="soundVolume" type="range" min="0" max="${MAX_SOUND_VOLUME}" step="0.05" value="${state.soundVolume}" />
             <button type="button" id="soundTestBtn">Test</button>
           </div>
         </div>
@@ -1319,7 +1560,7 @@ function selectField(key, label, value) {
   `;
 }
 
-function handField(key, label, value) {
+function toggleField(key, label, value) {
   return `
     <div class="config-card field">
       <div class="field-label-row">
@@ -1327,8 +1568,8 @@ function handField(key, label, value) {
         ${fieldHelp(key)}
       </div>
       <select id="${key}" data-setting="${key}">
-        <option value="left" ${value === "left" ? "selected" : ""}>Left</option>
-        <option value="right" ${value === "right" ? "selected" : ""}>Right</option>
+        <option value="true" ${value ? "selected" : ""}>On</option>
+        <option value="false" ${!value ? "selected" : ""}>Off</option>
       </select>
     </div>
   `;
@@ -1379,7 +1620,6 @@ function renderHud() {
       ${hudItem("Combo", state.combo)}
       ${hudItem("Rule", ruleLabel(getCurrentRule()))}
       ${hudItem("Phase", phaseLabel())}
-      ${renderHandHud()}
     </header>
   `;
 }
@@ -1397,7 +1637,7 @@ function phaseLabel() {
   if (state.isPaused) return "Paused";
   const labels = {
     waiting: "Ready",
-    rightStimulus: "Right",
+    rightStimulus: "Respond",
   };
   return labels[state.phase] || "Ready";
 }
@@ -1407,19 +1647,6 @@ function ruleLabel(rule) {
   if (rule === "nback1") return "1-back";
   if (rule === "finish") return "Finish";
   return "Normal";
-}
-
-function renderHandHud() {
-  const hand = state.activeHand || getHandForPosition(state.boardPosition);
-  return `
-    <div class="hud-item hand-hud">
-      <div class="hud-label">Hand</div>
-      <div class="hand-toggle" aria-label="Current hand">
-        <span class="hand-side ${hand === "left" ? "active" : ""}">Left</span>
-        <span class="hand-side ${hand === "right" ? "active" : ""}">Right</span>
-      </div>
-    </div>
-  `;
 }
 
 function renderBoard() {
@@ -1480,12 +1707,13 @@ function delayColorStyle(cell, range) {
 
 function getRoutePage(position = state.boardPosition) {
   const total = state.boardCells.length;
-  const pageStart = Math.floor(position / ROUTE_PAGE_SIZE) * ROUTE_PAGE_SIZE;
-  const pageEnd = Math.min(total, pageStart + ROUTE_PAGE_SIZE);
+  const routePageSize = getRoutePageSize();
+  const pageStart = Math.floor(position / routePageSize) * routePageSize;
+  const pageEnd = Math.min(total, pageStart + routePageSize);
   const visibleCount = pageEnd - pageStart;
   return {
-    currentPage: Math.floor(pageStart / ROUTE_PAGE_SIZE) + 1,
-    totalPages: Math.max(1, Math.ceil(total / ROUTE_PAGE_SIZE)),
+    currentPage: Math.floor(pageStart / routePageSize) + 1,
+    totalPages: Math.max(1, Math.ceil(total / routePageSize)),
     cells: state.boardCells.slice(pageStart, pageEnd).map((cell, localIndex) => ({
       ...cell,
       ...getRouteCellPosition(localIndex, visibleCount),
@@ -1524,21 +1752,25 @@ function renderPlayer() {
 function renderStimulus() {
   const stimulus = state.currentStimulus;
   const isActive = state.phase === "rightStimulus";
-  const displayed = isActive ? stimulus.displayedInstruction : null;
+  const displayed = isActive && stimulus ? stimulus.displayedInstruction : null;
   const displayedKeys = displayed ? instructionDisplayKeys(displayed) : [];
   const light = displayed?.light || "green";
   const targetContent = getTargetContent();
   const stepLabel = getStimulusStepLabel(stimulus);
   const showActiveKeys = isActive && stimulus?.targetVisible;
+  const panelStatus = isActive ? "Respond before the bar fills" : "Waiting for next cue";
+  const trafficText = isActive ? (light === "red" ? "NO-GO" : "GO") : "READY";
+  const trafficClass = isActive ? (light === "red" ? "red" : "go") : "ready";
+  const targetClass = isActive ? `active-target ${stimulus.targetVisible ? "" : "hidden-target"}` : "wait";
   return `
     <section class="stimulus-panel">
       <div class="panel-header">
         <h2>Go / No-Go</h2>
-        <span>${isActive ? "Respond before the bar fills" : "Waiting for next cue"}</span>
+        <span>${panelStatus}</span>
       </div>
       <div class="stimulus-main">
-        <div class="traffic ${light === "red" ? "red" : ""}">${isActive ? (light === "red" ? "NO-GO" : "GO") : "READY"}</div>
-        <div class="target-key ${isActive ? `active-target ${stimulus.targetVisible ? "" : "hidden-target"}` : "wait"}" style="--cue-visible-ms:${state.settings.cueVisibleMs}ms">${targetContent}</div>
+        <div class="traffic ${trafficClass}">${trafficText}</div>
+        <div class="target-key ${targetClass}">${targetContent}</div>
         <div class="sequence-progress">${stepLabel}</div>
         <div class="poison-note">${ruleNote(stimulus)}</div>
         <div class="timer"><div class="timer-fill" style="width:${state.timerPercent}%"></div></div>
@@ -1546,7 +1778,7 @@ function renderStimulus() {
       <div class="controls-strip">
         ${getConfiguredInputs().map(
           (input) =>
-            `<div class="key-chip ${showActiveKeys && displayedKeys.includes(input.id) ? "active" : ""}">${inputVisual(input.id)}</div>`,
+            `<div class="key-chip ${showActiveKeys && displayedKeys.includes(input.id) ? "active" : ""}">${slotVisual(input.id)}</div>`,
         ).join("")}
       </div>
     </section>
@@ -1560,8 +1792,8 @@ function getTargetContent() {
   return `
     <div class="target-sequence">
       ${keys.map((key, index) => `
-        <span class="target-sequence-item ${index === state.currentStimulus.stepIndex ? "current-step" : ""}">
-          ${inputVisual(key)}
+        <span class="target-sequence-item ${state.phase === "rightStimulus" && index === state.currentStimulus.stepIndex ? "current-step" : ""}">
+          ${cueSlotVisual(key)}
         </span>
       `).join("")}
     </div>
@@ -1569,7 +1801,8 @@ function getTargetContent() {
 }
 
 function getStimulusStepLabel(stimulus) {
-  if (!stimulus || state.phase !== "rightStimulus") return "";
+  if (!stimulus) return "";
+  if (state.phase !== "rightStimulus") return "";
   const requiredKeys = instructionEffectiveKeys(stimulus.requiredInstruction);
   if (stimulus.requiredInstruction.light === "red") return "NO-GO window";
   return `Key ${Math.min(requiredKeys.length, stimulus.stepIndex + 1)}/${requiredKeys.length}`;
@@ -1593,10 +1826,11 @@ function renderSummary() {
       <div class="summary-shell">
         <div>
           <h1>Training Complete</h1>
-          <p class="subtitle">Right-side successes moved forward. Errors and missed green cues moved backward.</p>
+          <p class="subtitle">Successful GO actions moved forward. Errors and missed green cues moved backward.</p>
         </div>
         <div class="summary-grid">
           ${metricCard("Progress", metrics.progress)}
+          ${metricCard("Time", metrics.duration)}
           ${metricCard("Hit rate", `${metrics.hitRate}%`)}
           ${metricCard("No-go errors", metrics.noGoErrors)}
           ${metricCard("Avg RT", `${metrics.avgRt}ms`)}
