@@ -25,8 +25,11 @@ const DEFAULT_ROUTE_PAGE_SIZE = 42;
 const MIN_ROUTE_PAGE_SIZE = 8;
 const MAX_ROUTE_PAGE_SIZE = 84;
 const MAX_ROUTE_PAGE_COUNT = 20;
+const MIN_RESPONSE_WINDOW = 400;
+const MAX_RESPONSE_WINDOW = 4000;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const SOUND_STORAGE_KEY = "moveThinkSoundSettingsV1";
+const ADAPTIVE_STORAGE_KEY = "moveThinkAdaptiveResponseHistoryV1";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 const DEFAULT_CUE_VISIBLE_MS = 750;
@@ -36,6 +39,10 @@ const DEFAULT_SEQUENCE_START_PAGE = 2;
 const DEFAULT_SEQUENCE_INCREMENT_PAGES = 1;
 const DEFAULT_MAX_SEQUENCE_LENGTH = 3;
 const MAX_SEQUENCE_LENGTH = 12;
+const DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS = 50;
+const DEFAULT_ADAPTIVE_STREAK_TARGET = 3;
+const DEFAULT_ADAPTIVE_DECREASE_PERCENT = 5;
+const DEFAULT_ADAPTIVE_INCREASE_PERCENT = 8;
 const SLOT_VOICE_DELAY_MS = 50;
 const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
 const SLOT_AUDIO_PATHS = {
@@ -54,6 +61,11 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1800,
+    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
+    adaptiveResponseEnabled: false,
+    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
+    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
+    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
     cueVisibleMs: 950,
     slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
@@ -76,6 +88,11 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1500,
+    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
+    adaptiveResponseEnabled: false,
+    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
+    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
+    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
     cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
     slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
@@ -98,6 +115,11 @@ const SYSTEM_PRESETS = {
     delayBalance: 0,
     delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
     responseWindow: 1100,
+    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
+    adaptiveResponseEnabled: false,
+    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
+    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
+    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
     cueVisibleMs: 550,
     slotVoiceEnabled: true,
     sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
@@ -127,6 +149,11 @@ const SETTING_HELP = {
   delayBalance: "0 makes each wait block independently random. 1 spreads the wait values evenly across the interval range, then shuffles them.",
   delayColorStrength: "Controls how strongly route spaces show wait time. 0 hides the effect; 1 makes short waits lighter and long waits darker.",
   responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
+  firstResponseKeyBonusMs: "Extra time added to the first response window in each route space for every displayed key. Set to 0 to disable.",
+  adaptiveResponseEnabled: "When on, the game adjusts response window and first-window bonus after each successful GO streak or error.",
+  adaptiveCorrectStreakTarget: "Number of complete green GO successes needed before the adaptive window decreases.",
+  adaptiveDecreasePercent: "Percentage used to shrink the adaptive response window and first-window bonus after a correct streak.",
+  adaptiveIncreasePercent: "Percentage used to grow the adaptive response window and first-window bonus after one error.",
   cueVisibleMs: "How long the target keys stay visible before fading out. Must be shorter than the response window.",
   slotVoiceEnabled: "Whether to play A1, B1, A2, and B2 voice cues during the response window.",
   sequenceStartPage: "First route page where the target sequence starts growing beyond one key.",
@@ -145,12 +172,14 @@ const SETTING_HELP = {
 };
 
 const savedSoundSettings = loadSoundSettings();
+const savedAdaptiveHistory = loadAdaptiveHistory();
 
 const state = {
   screen: "config",
   selectedPresetId: "normal",
   settings: { ...SYSTEM_PRESETS.normal },
   customPresets: loadCustomPresets(),
+  adaptiveHistory: savedAdaptiveHistory,
   soundEnabled: savedSoundSettings.soundEnabled,
   soundVolume: savedSoundSettings.soundVolume,
   audioContext: null,
@@ -186,6 +215,10 @@ const state = {
   messageTone: "",
   trials: [],
   movementHistory: [],
+  adaptivePresetId: null,
+  adaptiveMultiplier: 1,
+  adaptiveSessionStartMultiplier: 1,
+  adaptiveCorrectStreak: 0,
   sessionStartedAt: 0,
   sessionEndedAt: 0,
   timers: new Set(),
@@ -220,7 +253,29 @@ function cleanPreset(preset) {
     delayBlockSize: clampNumber(preset.delayBlockSize, 1, pathLength, 1),
     delayBalance: clampNumber(preset.delayBalance, 0, 1, 0),
     delayColorStrength: clampNumber(preset.delayColorStrength, 0, 1, DEFAULT_DELAY_COLOR_STRENGTH),
-    responseWindow: clampNumber(preset.responseWindow, 400, 4000, 1500),
+    responseWindow: clampNumber(preset.responseWindow, MIN_RESPONSE_WINDOW, MAX_RESPONSE_WINDOW, 1500),
+    firstResponseKeyBonusMs: clampNumber(
+      preset.firstResponseKeyBonusMs,
+      0,
+      1000,
+      DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
+    ),
+    adaptiveResponseEnabled: preset.adaptiveResponseEnabled === true,
+    adaptiveCorrectStreakTarget: Math.round(
+      clampNumber(preset.adaptiveCorrectStreakTarget, 2, 10, DEFAULT_ADAPTIVE_STREAK_TARGET),
+    ),
+    adaptiveDecreasePercent: clampNumber(
+      preset.adaptiveDecreasePercent,
+      0,
+      50,
+      DEFAULT_ADAPTIVE_DECREASE_PERCENT,
+    ),
+    adaptiveIncreasePercent: clampNumber(
+      preset.adaptiveIncreasePercent,
+      0,
+      50,
+      DEFAULT_ADAPTIVE_INCREASE_PERCENT,
+    ),
     cueVisibleMs: 0,
     slotVoiceEnabled: preset.slotVoiceEnabled === false ? false : true,
     sequenceStartPage: clampNumber(preset.sequenceStartPage, 1, maxRoutePageCount, DEFAULT_SEQUENCE_START_PAGE),
@@ -306,6 +361,23 @@ function saveCustomPresets() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customPresets));
 }
 
+function loadAdaptiveHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ADAPTIVE_STORAGE_KEY) || "{}");
+    return Object.entries(parsed).reduce((history, [presetId, multiplier]) => {
+      const number = Number(multiplier);
+      if (Number.isFinite(number) && number > 0) history[presetId] = number;
+      return history;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function saveAdaptiveHistory() {
+  localStorage.setItem(ADAPTIVE_STORAGE_KEY, JSON.stringify(state.adaptiveHistory));
+}
+
 function loadSoundSettings() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SOUND_STORAGE_KEY) || "{}");
@@ -360,7 +432,7 @@ function playSound(kind) {
   if (kind === "cue") {
     playTone(660, now, 0.07, "triangle", 0.42);
   } else if (kind === "nogoCue") {
-    playTone(460, now, 0.075, "triangle", 0.4);
+    playTone(500, now, 0.07, "triangle", 0.42);
   } else if (kind === "step") {
     playTone(784, now, 0.06, "square", 0.35);
     playTone(988, now + 0.06, 0.07, "square", 0.28);
@@ -468,6 +540,34 @@ function stopSlotAudio() {
 
 function allPresets() {
   return { ...SYSTEM_PRESETS, ...state.customPresets };
+}
+
+function getAdaptiveStartValues(settings = state.settings, presetId = state.selectedPresetId) {
+  const multiplier = settings.adaptiveResponseEnabled ? getSavedAdaptiveMultiplier(presetId, settings) : 1;
+  return {
+    multiplier,
+    responseWindow: getScaledResponseWindow(settings, multiplier),
+    firstResponseKeyBonusMs: getScaledFirstResponseKeyBonus(settings, multiplier),
+  };
+}
+
+function getSavedAdaptiveMultiplier(presetId = state.selectedPresetId, settings = state.settings) {
+  return clampAdaptiveMultiplier(state.adaptiveHistory[presetId] ?? 1, settings);
+}
+
+function clampAdaptiveMultiplier(multiplier, settings = state.settings) {
+  const baseWindow = Math.max(1, settings.responseWindow || MIN_RESPONSE_WINDOW);
+  const minMultiplier = MIN_RESPONSE_WINDOW / baseWindow;
+  const maxMultiplier = MAX_RESPONSE_WINDOW / baseWindow;
+  return clampNumber(multiplier, minMultiplier, maxMultiplier, 1);
+}
+
+function getScaledResponseWindow(settings = state.settings, multiplier = 1) {
+  return Math.round(clampNumber(settings.responseWindow * multiplier, MIN_RESPONSE_WINDOW, MAX_RESPONSE_WINDOW, settings.responseWindow));
+}
+
+function getScaledFirstResponseKeyBonus(settings = state.settings, multiplier = 1) {
+  return Math.round(Math.max(0, settings.firstResponseKeyBonusMs * multiplier));
 }
 
 function clearTimers() {
@@ -754,10 +854,10 @@ function updateSetting(key, value) {
     render();
     return;
   }
-  if (key === "slotVoiceEnabled") {
+  if (key === "slotVoiceEnabled" || key === "adaptiveResponseEnabled") {
     state.settings[key] = value === true || value === "true";
     state.settings = cleanPreset(state.settings);
-    if (!state.settings[key]) stopSlotAudio();
+    if (key === "slotVoiceEnabled" && !state.settings[key]) stopSlotAudio();
     render();
     return;
   }
@@ -767,6 +867,7 @@ function updateSetting(key, value) {
     return;
   }
   state.settings[key] = Number(value);
+  updateAdaptivePreviewDom();
 }
 
 function syncRouteSettingLimits() {
@@ -803,12 +904,22 @@ function saveCurrentPreset() {
   render();
 }
 
+function initializeAdaptiveSession() {
+  state.adaptivePresetId = state.selectedPresetId;
+  state.adaptiveCorrectStreak = 0;
+  state.adaptiveSessionStartMultiplier = state.settings.adaptiveResponseEnabled
+    ? getSavedAdaptiveMultiplier(state.adaptivePresetId, state.settings)
+    : 1;
+  state.adaptiveMultiplier = state.adaptiveSessionStartMultiplier;
+}
+
 function startGame() {
   clearTimers();
   ensureAudio();
   requestGameFullscreen();
   requestGamePointerLock();
   state.settings = cleanPreset(state.settings);
+  initializeAdaptiveSession();
   state.screen = "game";
   state.phase = "waiting";
   state.score = 0;
@@ -971,7 +1082,7 @@ function showStimulus() {
   state.phase = "rightStimulus";
   state.currentStimulus.stepIndex = 0;
   state.cueVisibleStartedAt = performance.now();
-  playSound(state.currentStimulus.requiredInstruction.light === "red" ? "nogoCue" : "cue");
+  playSound(state.currentStimulus.displayedInstruction.light === "red" ? "nogoCue" : "cue");
   setMessage(
     stimulusMessage(state.currentStimulus),
     state.currentStimulus.requiredInstruction.light === "green" ? "good" : "bad",
@@ -1011,10 +1122,11 @@ function startResponseStep(stimulusId, stepIndex, elapsed = 0) {
   if (!stimulus || stimulus.id !== stimulusId || stimulus.responded) return;
   clearResponseTimer();
   stimulus.stepIndex = stepIndex;
+  const responseWindow = getResponseWindowForStep(stimulus, stepIndex);
   state.stimulusStartedAt = performance.now() - elapsed;
-  startVisualTimer(state.settings.responseWindow, elapsed);
+  startVisualTimer(responseWindow, elapsed);
   render();
-  startResponseTimer(stimulusId, state.settings.responseWindow - elapsed);
+  startResponseTimer(stimulusId, responseWindow - elapsed);
 }
 
 function startResponseTimer(stimulusId, delay) {
@@ -1030,13 +1142,22 @@ function startResponseTimer(stimulusId, delay) {
     }
     state.responseTimer = null;
     const required = state.currentStimulus.requiredInstruction;
+    const responseWindow = getResponseWindowForStep(state.currentStimulus, state.currentStimulus.stepIndex);
     finishRightTrial({
       input: null,
       result: required.light === "red" ? "nogoSuccess" : "miss",
       success: required.light === "red",
-      reactionTime: state.settings.responseWindow,
+      reactionTime: responseWindow,
     });
   }, Math.max(0, delay));
+}
+
+function getResponseWindowForStep(stimulus, stepIndex = 0) {
+  const multiplier = state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1;
+  const baseWindow = getScaledResponseWindow(state.settings, multiplier);
+  if (!stimulus || stepIndex !== 0) return baseWindow;
+  const displayedKeyCount = Math.max(1, instructionDisplayKeys(stimulus.displayedInstruction).length);
+  return baseWindow + getScaledFirstResponseKeyBonus(state.settings, multiplier) * displayedKeyCount;
 }
 
 function startCueVisibilityTimer(stimulusId, delay) {
@@ -1107,13 +1228,14 @@ function pauseGame() {
 
   if (state.phase === "rightStimulus") {
     stopSlotAudio();
-    state.responseElapsedBeforePause = Math.min(state.settings.responseWindow, Math.max(0, now - state.stimulusStartedAt));
+    const responseWindow = getResponseWindowForStep(state.currentStimulus, state.currentStimulus?.stepIndex || 0);
+    state.responseElapsedBeforePause = Math.min(responseWindow, Math.max(0, now - state.stimulusStartedAt));
     state.cueVisibilityElapsedBeforePause = Math.min(state.settings.cueVisibleMs, Math.max(0, now - state.cueVisibleStartedAt));
     clearResponseTimer();
     clearCueVisibilityTimer();
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = null;
-    state.timerPercent = Math.min(100, (state.responseElapsedBeforePause / state.settings.responseWindow) * 100);
+    state.timerPercent = Math.min(100, (state.responseElapsedBeforePause / responseWindow) * 100);
   }
 
   render();
@@ -1130,7 +1252,8 @@ function resumeGame() {
   }
 
   if (pausedPhase === "rightStimulus" && state.currentStimulus && !state.currentStimulus.responded) {
-    const elapsed = Math.min(state.settings.responseWindow, Math.max(0, state.responseElapsedBeforePause));
+    const responseWindow = getResponseWindowForStep(state.currentStimulus, state.currentStimulus.stepIndex);
+    const elapsed = Math.min(responseWindow, Math.max(0, state.responseElapsedBeforePause));
     state.cueVisibleStartedAt = performance.now() - state.cueVisibilityElapsedBeforePause;
     syncTargetVisibility(state.currentStimulus.id);
     startResponseStep(state.currentStimulus.id, state.currentStimulus.stepIndex, elapsed);
@@ -1234,6 +1357,9 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   const requiredKeys = instructionEffectiveKeys(stimulus.requiredInstruction);
   const displayedGroups = displayedKeys.map((key) => inputGroup(key));
   const reactionTimes = [...stimulus.stepReactionTimes];
+  const adaptiveMultiplier = state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1;
+  const trialResponseWindow = getScaledResponseWindow(state.settings, adaptiveMultiplier);
+  const trialFirstResponseKeyBonusMs = getScaledFirstResponseKeyBonus(state.settings, adaptiveMultiplier);
   if (success && stimulus.requiredInstruction.light === "green" && Number.isFinite(reactionTime)) {
     reactionTimes.push(reactionTime);
   }
@@ -1269,9 +1395,14 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     reactionTime: Math.round(reactionTime),
     reactionTimes: reactionTimes.map((time) => Math.round(time)),
     completedSteps: stimulus.requiredInstruction.light === "green" ? reactionTimes.length : 0,
+    responseWindow: trialResponseWindow,
+    firstResponseKeyBonusMs: trialFirstResponseKeyBonusMs,
+    adaptiveMultiplier: Number(adaptiveMultiplier.toFixed(4)),
     result,
     success,
   });
+
+  updateAdaptiveAfterTrial(stimulus, success);
 
   state.phase = "waiting";
   state.currentStimulus = null;
@@ -1283,6 +1414,32 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     setTimer(finishSession, 750);
   } else {
     queueNextStimulus();
+  }
+}
+
+function updateAdaptiveAfterTrial(stimulus, success) {
+  if (!state.settings.adaptiveResponseEnabled || !stimulus) return;
+  const required = stimulus.requiredInstruction;
+  if (success && required.light === "green") {
+    state.adaptiveCorrectStreak += 1;
+    if (state.adaptiveCorrectStreak >= state.settings.adaptiveCorrectStreakTarget) {
+      state.adaptiveCorrectStreak = 0;
+      applyAdaptiveMultiplierChange(1 - state.settings.adaptiveDecreasePercent / 100);
+    }
+    return;
+  }
+  if (!success) {
+    state.adaptiveCorrectStreak = 0;
+    applyAdaptiveMultiplierChange(1 + state.settings.adaptiveIncreasePercent / 100);
+  }
+}
+
+function applyAdaptiveMultiplierChange(factor) {
+  if (!Number.isFinite(factor) || factor <= 0) return;
+  state.adaptiveMultiplier = clampAdaptiveMultiplier(state.adaptiveMultiplier * factor, state.settings);
+  if (state.adaptivePresetId) {
+    state.adaptiveHistory[state.adaptivePresetId] = state.adaptiveMultiplier;
+    saveAdaptiveHistory();
   }
 }
 
@@ -1430,7 +1587,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V5.0 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V5.1.1 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
@@ -1457,24 +1614,36 @@ function renderConfig() {
             <h2>Current Preset</h2>
             <span>${allPresets()[state.selectedPresetId]?.label || "Custom"}</span>
           </div>
-          <div class="config-grid">
-            ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
-            ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
-            ${numberField("delayBlockSize", "Delay block size", s.delayBlockSize, 1, MAX_PATH_LENGTH, 1)}
-            ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
-            ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
-            ${numberField("responseWindow", "Response window ms", s.responseWindow, 400, 4000, 50)}
-            ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
-            ${toggleField("slotVoiceEnabled", "Slot voice", s.slotVoiceEnabled)}
-            ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
-            ${numberField("routePageCount", "Route pages", s.routePageCount, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
-            ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
-            ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
-            ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
-            ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
-            ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
-            ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
-            ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+          <div class="preset-sections">
+            ${settingsSection("Timing", "Cue timing, response windows, and audio prompts.", `
+              ${adaptiveStartPreview(s)}
+              ${toggleField("adaptiveResponseEnabled", "Adaptive window", s.adaptiveResponseEnabled)}
+              ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 2, 10, 1)}
+              ${numberField("adaptiveDecreasePercent", "Decrease %", s.adaptiveDecreasePercent, 0, 50, 1)}
+              ${numberField("adaptiveIncreasePercent", "Increase %", s.adaptiveIncreasePercent, 0, 50, 1)}
+              ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
+              ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
+              ${numberField("responseWindow", "Response window ms", s.responseWindow, MIN_RESPONSE_WINDOW, MAX_RESPONSE_WINDOW, 50)}
+              ${numberField("firstResponseKeyBonusMs", "First window bonus / key ms", s.firstResponseKeyBonusMs, 0, 1000, 50)}
+              ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
+              ${toggleField("slotVoiceEnabled", "Slot voice", s.slotVoiceEnabled)}
+            `)}
+            ${settingsSection("Route", "Board length and how wait times are distributed across spaces.", `
+              ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
+              ${numberField("routePageCount", "Route pages", s.routePageCount, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
+              ${numberField("delayBlockSize", "Delay block size", s.delayBlockSize, 1, MAX_PATH_LENGTH, 1)}
+              ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
+              ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
+            `)}
+            ${settingsSection("Sequence & Rules", "Multi-key growth, NO-GO rate, and special route zones.", `
+              ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
+              ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
+              ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
+              ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
+              ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
+              ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
+              ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+            `)}
           </div>
         </div>
 
@@ -1538,6 +1707,54 @@ function numberField(key, label, value, min, max, step) {
       </div>
       <input id="${key}" data-setting="${key}" type="number" inputmode="numeric" min="${min}" max="${max}" step="${step}" value="${value}" />
     </div>
+  `;
+}
+
+function adaptiveStartPreview(settings) {
+  const preview = getAdaptiveStartValues(settings, state.selectedPresetId);
+  const modeLabel = settings.adaptiveResponseEnabled ? `Adaptive ${preview.multiplier.toFixed(2)}x` : "Adaptive Off";
+  return `
+    <div class="config-card adaptive-preview">
+      <div class="field-label-row">
+        <label>Next run start</label>
+      </div>
+      <div class="adaptive-preview-values">
+        <div>
+          <span>Response</span>
+          <strong data-adaptive-preview="responseWindow">${preview.responseWindow}ms</strong>
+        </div>
+        <div>
+          <span>Bonus / key</span>
+          <strong data-adaptive-preview="firstResponseKeyBonusMs">${preview.firstResponseKeyBonusMs}ms</strong>
+        </div>
+      </div>
+      <p data-adaptive-preview="mode">${modeLabel}</p>
+    </div>
+  `;
+}
+
+function updateAdaptivePreviewDom() {
+  const responseTarget = document.querySelector('[data-adaptive-preview="responseWindow"]');
+  const bonusTarget = document.querySelector('[data-adaptive-preview="firstResponseKeyBonusMs"]');
+  const modeTarget = document.querySelector('[data-adaptive-preview="mode"]');
+  if (!responseTarget || !bonusTarget || !modeTarget) return;
+  const preview = getAdaptiveStartValues(cleanPreset(state.settings), state.selectedPresetId);
+  responseTarget.textContent = `${preview.responseWindow}ms`;
+  bonusTarget.textContent = `${preview.firstResponseKeyBonusMs}ms`;
+  modeTarget.textContent = state.settings.adaptiveResponseEnabled ? `Adaptive ${preview.multiplier.toFixed(2)}x` : "Adaptive Off";
+}
+
+function settingsSection(title, description, fields) {
+  return `
+    <section class="settings-group">
+      <div class="settings-group-header">
+        <h3>${title}</h3>
+        <span>${description}</span>
+      </div>
+      <div class="config-grid">
+        ${fields}
+      </div>
+    </section>
   `;
 }
 

@@ -115,8 +115,84 @@ h1 {
   overflow: visible;
 }
 
-.current-preset .config-grid {
+.preset-sections,
+.input-groups-panel .config-grid {
   padding: 16px;
+}
+
+.preset-sections {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-group {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-group:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-group .config-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-group-header h3 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.settings-group-header span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.adaptive-preview {
+  display: grid;
+  gap: 10px;
+  background: #121923;
+}
+
+.adaptive-preview-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.adaptive-preview-values div {
+  min-width: 0;
+}
+
+.adaptive-preview-values span,
+.adaptive-preview p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.adaptive-preview-values strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.adaptive-preview p {
+  margin: 0;
+  font-weight: 800;
 }
 
 .config-card label,
@@ -1422,6 +1498,7 @@ h1 {
 
   .playfield,
   .config-grid,
+  .settings-group .config-grid,
   .summary-grid,
   .hud {
     grid-template-columns: 1fr 1fr;
@@ -1438,6 +1515,7 @@ h1 {
   }
 
   .config-grid,
+  .settings-group .config-grid,
   .summary-grid,
   .hud {
     grid-template-columns: 1fr;
@@ -1467,9 +1545,14 @@ h1 {
   }
 
   .preset-card-header,
+  .settings-group-header,
   .actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-group-header span {
+    text-align: left;
   }
 
   .preset-card-header button,

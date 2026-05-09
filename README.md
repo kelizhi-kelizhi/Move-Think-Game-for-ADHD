@@ -4,9 +4,9 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 
 ## Current Rules
 
-- V5.0 uses a forest route board with a static route event plan generated before each run.
+- V5.1.1 uses a forest route board with a static route event plan generated before each run.
 - The right side shows abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V5.0 lets you configure two input groups. Each group contains two active keys.
+- V5.1.1 lets you configure two input groups. Each group contains two active keys.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
@@ -20,6 +20,9 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 - Later pages can require multi-key GO sequences. By default page 1 uses one key, page 2 uses two keys, and page 3+ uses up to three keys.
 - When `Slot voice` is on, A1/B1/A2/B2 voice cues play during the GO / NO-GO response window. If the trial ends before the voice finishes, playback stops when the game returns to Ready.
 - GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
+- The first response window in each route space can be extended by a configured amount per displayed key. The default is `50ms` per key, and `0` disables the extra time.
+- Adaptive response mode uses an N-up / 1-down rule. Complete green GO spaces in a row shrink both the base response window and the first-window bonus. One error grows both values. Correct NO-GO spaces do not count toward the streak, but false alarms count as errors.
+- When adaptive response mode is on, each preset keeps its own saved multiplier. The next run starts from the last adaptive window used with that preset.
 - NO-GO sequences require no input for one response window, regardless of sequence length.
 - The session ends when the explorer reaches the finish space.
 - Purple route spaces are reverse zones: green cues use the matching slot in the other input group, so A1 maps to B1 and A2 maps to B2.
@@ -43,6 +46,11 @@ GO / NO-GO inputs:
 - `Delay balance`: value from `0` to `1`. At `0`, each delay block is independently random. At `1`, the delay block values are evenly spaced between `Cue interval ms` and `Cue interval ms + Random jitter ms`, then shuffled across the route.
 - `Delay color strength`: value from `0` to `1`. At `0`, wait time does not affect route space brightness. At `1`, short-wait spaces are lightest and long-wait spaces are darkest.
 - `Response window ms`: time allowed for each GO key step, or the one NO-GO window.
+- `First window bonus / key ms`: extra time added to the first response window in each route space for every displayed key. Later GO sequence steps use `Response window ms` without this bonus.
+- `Adaptive window`: whether the game automatically scales `Response window ms` and `First window bonus / key ms`.
+- `Correct streak to decrease`: number of complete green GO successes needed before the adaptive values shrink.
+- `Decrease %`: percentage shrink applied after a correct streak.
+- `Increase %`: percentage growth applied after one error.
 - `Cue visible ms`: total time the target slot sequence stays visible during the response window. It must be shorter than `Response window ms`.
 - `Slot voice`: whether to play A1/B1/A2/B2 voice cues during the response window.
 - `Sequence start page`: first page where sequence length grows beyond one key.
