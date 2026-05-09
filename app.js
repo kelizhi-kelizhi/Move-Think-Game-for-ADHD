@@ -262,7 +262,7 @@ function cleanPreset(preset) {
     ),
     adaptiveResponseEnabled: preset.adaptiveResponseEnabled === true,
     adaptiveCorrectStreakTarget: Math.round(
-      clampNumber(preset.adaptiveCorrectStreakTarget, 2, 10, DEFAULT_ADAPTIVE_STREAK_TARGET),
+      clampNumber(preset.adaptiveCorrectStreakTarget, 1, 10, DEFAULT_ADAPTIVE_STREAK_TARGET),
     ),
     adaptiveDecreasePercent: clampNumber(
       preset.adaptiveDecreasePercent,
@@ -432,7 +432,7 @@ function playSound(kind) {
   if (kind === "cue") {
     playTone(660, now, 0.07, "triangle", 0.42);
   } else if (kind === "nogoCue") {
-    playTone(500, now, 0.07, "triangle", 0.42);
+    playTone(620, now, 0.07, "triangle", 0.42);
   } else if (kind === "step") {
     playTone(784, now, 0.06, "square", 0.35);
     playTone(988, now + 0.06, 0.07, "square", 0.28);
@@ -1587,7 +1587,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V5.1.1 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V5.2.0 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
@@ -1618,7 +1618,7 @@ function renderConfig() {
             ${settingsSection("Timing", "Cue timing, response windows, and audio prompts.", `
               ${adaptiveStartPreview(s)}
               ${toggleField("adaptiveResponseEnabled", "Adaptive window", s.adaptiveResponseEnabled)}
-              ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 2, 10, 1)}
+              ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 1, 10, 1)}
               ${numberField("adaptiveDecreasePercent", "Decrease %", s.adaptiveDecreasePercent, 0, 50, 1)}
               ${numberField("adaptiveIncreasePercent", "Increase %", s.adaptiveIncreasePercent, 0, 50, 1)}
               ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}

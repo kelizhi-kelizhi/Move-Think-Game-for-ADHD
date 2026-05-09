@@ -4,9 +4,9 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 
 ## Current Rules
 
-- V5.1.1 uses a forest route board with a static route event plan generated before each run.
+- V5.2.0 uses a forest route board with a static route event plan generated before each run.
 - The right side shows abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V5.1.1 lets you configure two input groups. Each group contains two active keys.
+- V5.2.0 lets you configure two input groups. Each group contains two active keys.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
