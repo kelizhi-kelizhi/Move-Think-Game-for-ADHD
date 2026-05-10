@@ -1,4 +1,4 @@
-# Move & Think ADHD Game
+# Move & Think Game for ADHD
 
 This is a zero-dependency local web prototype. Open `index.html` in a browser to run it.
 
@@ -8,7 +8,9 @@ It is loosely inspired by research on integrated cognitive-motor exercise for AD
 
 [Integrated cognitive-motor exercise for core symptoms and executive functions in children with attention deficit hyperactivity disorder: a randomized clinical trial](https://doi.org/10.1007/s12519-026-01019-4)
 
-The published study involved a specific clinical protocol, participant group, supervision, training schedule, and outcome assessment. This game is only a simplified, home-playable prototype inspired by some general design ideas, such as combining physical movement with cognitive challenges.
+The study reported that a structured integrated cognitive-motor exercise program reduced core ADHD symptoms and improved executive-function measures in children with ADHD, with additional advantages in inhibitory control and immediate working memory compared with aerobic exercise alone.
+
+This game is only a simplified, home-playable prototype inspired by some general design ideas, such as combining physical movement with cognitive challenges.
 
 This project is not a medical device and is not intended to diagnose, treat, cure, or prevent ADHD or any other medical condition. It does not guarantee improvements in attention, executive function, ADHD symptoms, or health outcomes.
 
@@ -82,3 +84,7 @@ GO / NO-GO inputs:
 - `Input Groups`: non-overlapping key choices split into group A and group B. Empty slots are allowed; A1/B1 and A2/B2 are the reverse pairs.
 
 Before training, make sure the space around the player is clear. Put group A and group B far enough apart that switching groups requires a deliberate body movement.
+
+## Development
+
+Most of the current HTML, CSS, and JavaScript implementation was written with assistance from OpenAI Codex.
