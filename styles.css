@@ -70,6 +70,11 @@ button:hover {
   border-color: var(--cyan);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .screen {
   min-height: 100vh;
   padding: 20px;
@@ -355,6 +360,76 @@ h1 {
   border-color: var(--gold);
   color: #111;
   background: var(--gold);
+}
+
+.map-panel-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.map-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.map-actions button {
+  min-width: 120px;
+  padding: 12px 14px;
+  font-weight: 850;
+}
+
+.map-list {
+  display: grid;
+  gap: 10px;
+}
+
+.map-list-item,
+.map-empty {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1117;
+}
+
+.map-list-item {
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+  text-align: left;
+}
+
+.map-list-item strong,
+.map-list-item span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.map-list-item span,
+.map-empty,
+.map-status {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.map-list-item.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.16);
+}
+
+.map-status.good,
+.safety.good {
+  color: var(--green);
+}
+
+.map-status.bad,
+.safety.bad {
+  color: var(--bad);
 }
 
 .actions {
@@ -1725,8 +1800,8 @@ h1 {
   }
 
   .game-screen {
-    height: 100dvh;
-    min-height: 100dvh;
+    height: var(--app-height);
+    min-height: var(--app-height);
     overflow: hidden;
     border-width: 5px;
   }
@@ -1798,10 +1873,10 @@ h1 {
   .forest-map {
     top: 22px;
     right: 18px;
-    bottom: 126px;
+    bottom: 164px;
     left: 18px;
     width: calc(100% - 36px);
-    height: calc(100% - 148px);
+    height: calc(100% - 186px);
   }
 
   .trail-cell {
@@ -1831,18 +1906,18 @@ h1 {
   .game-screen .game-hud {
     left: 8px;
     right: 8px;
-    bottom: max(8px, env(safe-area-inset-bottom));
-    max-height: 94px;
+    bottom: calc(max(42px, env(safe-area-inset-bottom) + 34px));
+    max-height: none;
     justify-content: center;
     align-content: flex-end;
     gap: 5px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .game-screen .response-timer {
     left: 8px;
     right: 8px;
-    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 102px);
+    bottom: calc(max(42px, env(safe-area-inset-bottom) + 34px) + 106px);
     height: 12px;
     border-width: 3px;
   }
@@ -1899,8 +1974,7 @@ h1 {
     position: fixed;
     inset: 0;
     width: 100vw;
-    height: 100vh;
-    height: 100dvh;
+    height: var(--app-height);
     min-height: 0;
     overflow: hidden;
     border-width: 4px;
@@ -1939,10 +2013,10 @@ h1 {
   .forest-map {
     top: 18px;
     right: 18px;
-    bottom: 92px;
+    bottom: 126px;
     left: 18px;
     width: calc(100% - 36px);
-    height: calc(100% - 110px);
+    height: calc(100% - 144px);
   }
 
   .trail-cell {
@@ -1972,18 +2046,18 @@ h1 {
   .game-screen .game-hud {
     left: 8px;
     right: 8px;
-    bottom: max(6px, env(safe-area-inset-bottom));
-    max-height: 72px;
+    bottom: calc(max(30px, env(safe-area-inset-bottom) + 24px));
+    max-height: none;
     justify-content: center;
     align-content: flex-end;
     gap: 4px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .game-screen .response-timer {
     left: 8px;
     right: 8px;
-    bottom: calc(max(6px, env(safe-area-inset-bottom)) + 78px);
+    bottom: calc(max(30px, env(safe-area-inset-bottom) + 24px) + 82px);
     height: 10px;
     border-width: 3px;
   }

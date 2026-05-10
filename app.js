@@ -28,10 +28,13 @@ const MAX_ROUTE_PAGE_COUNT = 50;
 const MIN_RESPONSE_WINDOW = 400;
 const MAX_RESPONSE_WINDOW = 4000;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
+const MAP_STORAGE_KEY = "moveThinkMapsV1";
 const SOUND_STORAGE_KEY = "moveThinkSoundSettingsV1";
 const HISTORY_STORAGE_KEY = "moveThinkSessionHistoryV1";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 const MAX_HISTORY_ENTRIES = 100;
+const MAX_SAVED_MAPS = 50;
+const MAP_VERSION = 7;
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 const DEFAULT_CUE_VISIBLE_MS = 750;
 const DEFAULT_SOUND_VOLUME = 0.28;
@@ -48,6 +51,7 @@ const DEFAULT_MAX_LIVES = 10;
 const MAX_LIVES = 50;
 const SLOT_VOICE_DELAY_MS = 50;
 const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
+const SLOT_IDS = ["A1", "A2", "B1", "B2"];
 const SLOT_AUDIO_PATHS = {
   A1: "assets/audio/a1.mp3",
   A2: "assets/audio/a2.mp3",
@@ -78,6 +82,7 @@ const FALLBACK_PRESET = {
   routePageSize: DEFAULT_ROUTE_PAGE_SIZE,
   routePageCount: 1,
   pathLength: DEFAULT_ROUTE_PAGE_SIZE,
+  mapSlotPairs: 1,
   redRate: 30,
   reverseZones: 2,
   nbackZones: 1,
@@ -113,6 +118,7 @@ const SETTING_HELP = {
   maxSequenceLength: "Maximum number of keys that can appear in one route-space sequence.",
   routePageSize: "Number of route spaces shown on each page.",
   routePageCount: "Total number of route pages. Total route spaces equal page size multiplied by page count.",
+  mapSlotPairs: "How many A/B slot pairs the generated map may use. Two pairs can generate A2 and B2 cues.",
   redRate: "Chance that a generated cue is NO-GO.",
   reverseZones: "Number of purple route segments where green targets use the matching slot in the other input group.",
   nbackZones: "Number of blue route segments where the required action comes from the previous route space's generated cue.",
@@ -126,12 +132,16 @@ const SETTING_HELP = {
 const savedSoundSettings = loadSoundSettings();
 const savedCustomPresets = loadCustomPresets();
 const savedSessionHistory = loadSessionHistory();
+const savedMaps = loadSavedMaps();
 
 const state = {
   screen: "config",
   selectedPresetId: "custom1",
   settings: { ...savedCustomPresets.custom1 },
   customPresets: savedCustomPresets,
+  maps: savedMaps,
+  selectedMapId: savedMaps[0]?.id || "",
+  activeMap: null,
   soundEnabled: savedSoundSettings.soundEnabled,
   soundVolume: savedSoundSettings.soundVolume,
   audioContext: null,
@@ -240,6 +250,7 @@ function cleanPreset(preset) {
     routePageSize,
     routePageCount,
     pathLength,
+    mapSlotPairs: Math.round(clampNumber(preset.mapSlotPairs, 1, 2, 1)),
     redRate: clampNumber(preset.redRate, 0, 80, 30),
     reverseZones: clampNumber(preset.reverseZones, 0, 6, 2),
     nbackZones: clampNumber(preset.nbackZones, 0, 6, 1),
@@ -369,6 +380,77 @@ function loadSessionHistory() {
 
 function saveSessionHistory() {
   localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.sessionHistory.slice(0, MAX_HISTORY_ENTRIES)));
+}
+
+function loadSavedMaps() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MAP_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(cleanSavedMap).filter(Boolean).slice(0, MAX_SAVED_MAPS);
+  } catch {
+    return [];
+  }
+}
+
+function saveSavedMaps() {
+  localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(state.maps.slice(0, MAX_SAVED_MAPS)));
+}
+
+function cleanSavedMap(map) {
+  if (!map || typeof map !== "object" || !Array.isArray(map.cells)) return null;
+  const settings = cleanPreset({
+    ...FALLBACK_PRESET,
+    ...(map.mapSettingsSnapshot || {}),
+    routePageSize: map.routePageSize,
+    routePageCount: map.routePageCount,
+    pathLength: map.pathLength,
+  });
+  const pathLength = settings.pathLength;
+  const cells = map.cells
+    .slice(0, pathLength)
+    .map((cell, index) => cleanMapCell(cell, index))
+    .filter(Boolean);
+  if (cells.length !== pathLength) return null;
+  cells[0].type = "start";
+  cells[cells.length - 1].type = "finish";
+  const requiredSlots = getMapRequiredSlots({ ...map, cells });
+  return {
+    id: typeof map.id === "string" && map.id ? map.id : createId("map"),
+    name: typeof map.name === "string" && map.name.trim() ? map.name.trim().slice(0, 64) : "Untitled Map",
+    createdAt: Number.isFinite(map.createdAt) ? map.createdAt : Date.now(),
+    version: MAP_VERSION,
+    mapSettingsSnapshot: pickMapSettings(settings),
+    routePageSize: settings.routePageSize,
+    routePageCount: settings.routePageCount,
+    pathLength,
+    requiredSlots,
+    cells,
+  };
+}
+
+function cleanMapCell(cell, index) {
+  if (!cell || typeof cell !== "object") return null;
+  const type = ["normal", "start", "finish", "reverse", "nback1"].includes(cell.type) ? cell.type : "normal";
+  const displayed = cleanMapDisplayedInstruction(cell.displayedInstruction);
+  if (!displayed) return null;
+  return {
+    index,
+    type,
+    delayMs: Math.max(250, Math.round(clampNumber(cell.delayMs, 250, 6000, FALLBACK_PRESET.baseInterval))),
+    displayedInstruction: displayed,
+  };
+}
+
+function cleanMapDisplayedInstruction(instruction) {
+  if (!instruction || typeof instruction !== "object") return null;
+  const slots = Array.isArray(instruction.slots)
+    ? instruction.slots.filter((slot) => SLOT_IDS.includes(slot))
+    : instructionDisplayKeys(instruction).map((id) => inputSlotLabel(id, FALLBACK_PRESET)).filter((slot) => SLOT_IDS.includes(slot));
+  if (!slots.length) return null;
+  return {
+    light: instruction.light === "red" ? "red" : "green",
+    slots,
+  };
 }
 
 function clearSessionHistory() {
@@ -606,6 +688,7 @@ function exitGame() {
   state.screen = "config";
   state.phase = "idle";
   state.currentStimulus = null;
+  state.activeMap = null;
   resetPauseState();
   setMessage("Game exited. Adjust settings or start again.", "");
   releaseGamePointerLock();
@@ -640,6 +723,31 @@ function setCueTimer(callback, delay) {
   }, state.cueTimerDelay);
 }
 
+function createId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pickMapSettings(settings) {
+  const cleaned = cleanPreset(settings);
+  return {
+    routePageSize: cleaned.routePageSize,
+    routePageCount: cleaned.routePageCount,
+    pathLength: cleaned.pathLength,
+    mapSlotPairs: cleaned.mapSlotPairs,
+    baseInterval: cleaned.baseInterval,
+    jitter: cleaned.jitter,
+    delayBlockSize: cleaned.delayBlockSize,
+    delayBalance: cleaned.delayBalance,
+    sequenceStartPage: cleaned.sequenceStartPage,
+    sequenceIncrementPages: cleaned.sequenceIncrementPages,
+    maxSequenceLength: cleaned.maxSequenceLength,
+    redRate: cleaned.redRate,
+    reverseZones: cleaned.reverseZones,
+    nbackZones: cleaned.nbackZones,
+    abAlternation: cleaned.abAlternation,
+  };
+}
+
 function randomRightInput(previousGroup = null, settings = state.settings, options = {}) {
   const groups = getInputGroups(settings);
   const candidates = getInputCandidates(settings, options);
@@ -672,6 +780,52 @@ function randomRightInputSequence(length, previousGroup = null, settings = state
   return sequence;
 }
 
+function randomSlot(previousGroup = null, settings = state.settings) {
+  const candidates = getMapSlotGroups(settings);
+  const availableGroups = Object.entries(candidates)
+    .filter(([, slots]) => slots.length)
+    .map(([group]) => group);
+  let nextGroup;
+  if (!previousGroup) {
+    nextGroup = availableGroups[Math.floor(Math.random() * availableGroups.length)] || "A";
+  } else {
+    const oppositeGroup = previousGroup === "A" ? "B" : "A";
+    const alternateChance = 0.5 + settings.abAlternation * 0.5;
+    nextGroup = Math.random() < alternateChance ? oppositeGroup : previousGroup;
+    if (!candidates[nextGroup]?.length) {
+      nextGroup = candidates[oppositeGroup]?.length ? oppositeGroup : availableGroups[0];
+    }
+  }
+  const slots = candidates[nextGroup]?.length ? candidates[nextGroup] : candidates.A;
+  return slots[Math.floor(Math.random() * slots.length)] || "A1";
+}
+
+function randomSlotSequence(length, previousGroup = null, settings = state.settings) {
+  const sequence = [];
+  let group = previousGroup;
+  for (let index = 0; index < length; index += 1) {
+    const slot = randomSlot(group, settings);
+    sequence.push(slot);
+    group = slotGroup(slot);
+  }
+  return sequence;
+}
+
+function getMapSlotGroups(settings = state.settings) {
+  const pairs = Math.max(1, Math.min(2, Math.round(settings.mapSlotPairs || 1)));
+  return {
+    A: pairs >= 2 ? ["A1", "A2"] : ["A1"],
+    B: pairs >= 2 ? ["B1", "B2"] : ["B1"],
+  };
+}
+
+function slotGroup(slot) {
+  if (typeof slot !== "string") return null;
+  if (slot.startsWith("A")) return "A";
+  if (slot.startsWith("B")) return "B";
+  return null;
+}
+
 function getSequenceLengthForCell(index, settings = state.settings) {
   const page = Math.floor(index / getRoutePageSize(settings)) + 1;
   const startPage = Math.max(1, Math.round(settings.sequenceStartPage));
@@ -682,6 +836,13 @@ function getSequenceLengthForCell(index, settings = state.settings) {
 }
 
 function getRoutePageSize(settings = state.settings) {
+  if (
+    settings === state.settings &&
+    state.activeMap &&
+    (state.screen === "game" || state.screen === "summary")
+  ) {
+    return Math.max(MIN_ROUTE_PAGE_SIZE, Math.round(state.activeMap.routePageSize || DEFAULT_ROUTE_PAGE_SIZE));
+  }
   return Math.max(MIN_ROUTE_PAGE_SIZE, Math.round(settings.routePageSize || DEFAULT_ROUTE_PAGE_SIZE));
 }
 
@@ -696,6 +857,21 @@ function getInputCandidates(settings = state.settings, options = {}) {
     A: candidates.A.filter((input) => Boolean(reverseInput(input, settings))),
     B: candidates.B.filter((input) => Boolean(reverseInput(input, settings))),
   };
+}
+
+function slotToInputId(slot, settings = state.settings) {
+  const groups = cleanInputGroups(settings);
+  const slots = {
+    A1: groups.groupAKey1,
+    A2: groups.groupAKey2,
+    B1: groups.groupBKey1,
+    B2: groups.groupBKey2,
+  };
+  return slots[slot] || "";
+}
+
+function slotSequenceToInputs(slots, settings = state.settings) {
+  return slots.map((slot) => slotToInputId(slot, settings)).filter(Boolean);
 }
 
 function randomInteger(min, max) {
@@ -742,6 +918,7 @@ function slotVisual(id) {
 }
 
 function cueSlotVisual(id) {
+  return slotVisual(id);
   const label = inputSlotLabel(id);
   if (label.startsWith("A")) {
     return `<span class="input-visual key-visual slot-visual cue-slot"><span class="cue-arrow">←</span><span>${label}</span></span>`;
@@ -753,6 +930,7 @@ function cueSlotVisual(id) {
 }
 
 function inputSlotLabel(id, settings = state.settings) {
+  if (SLOT_IDS.includes(id)) return id;
   const groups = cleanInputGroups(settings);
   const slots = [
     ["groupAKey1", "A1"],
@@ -801,6 +979,82 @@ function inputGroup(id, settings = state.settings) {
 function setMessage(message, tone = "") {
   state.message = message;
   state.messageTone = tone;
+}
+
+function getSelectedMap() {
+  return state.maps.find((map) => map.id === state.selectedMapId) || null;
+}
+
+function getMapRequiredSlots(map) {
+  const slots = new Set();
+  (map?.cells || []).forEach((cell) => {
+    const cellSlots = cell?.displayedInstruction?.slots || [];
+    cellSlots.forEach((slot) => {
+      if (SLOT_IDS.includes(slot)) slots.add(slot);
+    });
+  });
+  return SLOT_IDS.filter((slot) => slots.has(slot));
+}
+
+function validateMapForRun(map, settings = state.settings) {
+  if (!map) return { ok: false, message: "Generate or select a map before starting." };
+  const missingSlots = getMapRequiredSlots(map).filter((slot) => !slotToInputId(slot, settings));
+  if (missingSlots.length) {
+    return {
+      ok: false,
+      message: `Selected map needs ${missingSlots.join(", ")}. Assign those input slots before starting.`,
+    };
+  }
+  return { ok: true, message: "" };
+}
+
+function defaultMapName() {
+  return `Map ${new Date().toLocaleString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function generateMapFromCurrentSettings() {
+  state.settings = cleanPreset(state.settings);
+  const map = generateSavedMap(state.settings);
+  state.maps = [map, ...state.maps.filter((item) => item.id !== map.id)].slice(0, MAX_SAVED_MAPS);
+  state.selectedMapId = map.id;
+  saveSavedMaps();
+  setMessage(`Generated ${map.name}.`, "good");
+  render();
+}
+
+function selectMap(mapId) {
+  if (!state.maps.some((map) => map.id === mapId)) return;
+  state.selectedMapId = mapId;
+  setMessage("Map selected. Start training or adjust run settings.", "");
+  render();
+}
+
+function deleteSelectedMap() {
+  const selectedMap = getSelectedMap();
+  if (!selectedMap) return;
+  state.maps = state.maps.filter((map) => map.id !== selectedMap.id);
+  state.selectedMapId = state.maps[0]?.id || "";
+  saveSavedMaps();
+  setMessage(`Deleted ${selectedMap.name}.`, "");
+  render();
+}
+
+function renameSelectedMap() {
+  const selectedMap = getSelectedMap();
+  if (!selectedMap) return;
+  const nextName = window.prompt("Map name", selectedMap.name);
+  if (nextName === null) return;
+  const cleanedName = nextName.trim().slice(0, 64);
+  if (!cleanedName) return;
+  selectedMap.name = cleanedName;
+  saveSavedMaps();
+  render();
 }
 
 function selectPreset(presetId) {
@@ -885,17 +1139,25 @@ function initializeAdaptiveSession() {
 
 function startGame() {
   clearTimers();
+  state.settings = cleanPreset(state.settings);
+  const selectedMap = getSelectedMap();
+  const validation = validateMapForRun(selectedMap, state.settings);
+  if (!validation.ok) {
+    setMessage(validation.message, "bad");
+    render();
+    return;
+  }
   ensureAudio();
   requestGameFullscreen();
   requestGamePointerLock();
-  state.settings = cleanPreset(state.settings);
   initializeAdaptiveSession();
   state.screen = "game";
   state.phase = "waiting";
   state.score = 0;
   state.combo = 0;
   state.lives = state.settings.maxLives;
-  state.boardCells = generateBoardCells(state.settings);
+  state.activeMap = selectedMap;
+  state.boardCells = loadBoardCellsFromMap(selectedMap, state.settings);
   state.boardPosition = 0;
   state.previousBoardPosition = 0;
   state.playerStepping = false;
@@ -921,36 +1183,64 @@ function startGame() {
 }
 
 function generateBoardCells(settings) {
-  const length = settings.pathLength;
-  const cells = Array.from({ length }, (_, index) => ({ index, type: "normal" }));
-
-  placeZones(cells, "reverse", settings.reverseZones, 2, 4);
-  placeZones(cells, "nback1", settings.nbackZones, 2, 3);
-  cells[0].type = "start";
-  cells[cells.length - 1].type = "finish";
-  applyRouteEvents(cells, settings);
-  return cells;
+  return loadBoardCellsFromMap(generateSavedMap(settings), settings);
 }
 
-function applyRouteEvents(cells, settings) {
+function generateSavedMap(settings) {
+  const mapSettings = cleanPreset(settings);
+  const length = mapSettings.pathLength;
+  const cells = Array.from({ length }, (_, index) => ({ index, type: "normal" }));
+
+  placeZones(cells, "reverse", mapSettings.reverseZones, 2, 4);
+  placeZones(cells, "nback1", mapSettings.nbackZones, 2, 3);
+  cells[0].type = "start";
+  cells[cells.length - 1].type = "finish";
+  applyMapEvents(cells, mapSettings);
+  return {
+    id: createId("map"),
+    name: defaultMapName(),
+    createdAt: Date.now(),
+    version: MAP_VERSION,
+    mapSettingsSnapshot: pickMapSettings(mapSettings),
+    routePageSize: mapSettings.routePageSize,
+    routePageCount: mapSettings.routePageCount,
+    pathLength: mapSettings.pathLength,
+    requiredSlots: getMapRequiredSlots({ cells }),
+    cells,
+  };
+}
+
+function applyMapEvents(cells, settings) {
   const delays = generateRouteDelays(settings, cells.length);
   let previousGroup = null;
 
   cells.forEach((cell, index) => {
-    const displayKeys = randomRightInputSequence(
+    const slots = randomSlotSequence(
       getSequenceLengthForCell(index, settings),
       previousGroup,
       settings,
-      { requireReversePair: cell.type === "reverse" },
     );
-    previousGroup = inputGroup(displayKeys[displayKeys.length - 1], settings);
+    previousGroup = slotGroup(slots[slots.length - 1]);
     cell.delayMs = delays[index];
     cell.displayedInstruction = {
       light: Math.random() * 100 < settings.redRate ? "red" : "green",
-      displayKeys,
+      slots,
     };
   });
+}
 
+function loadBoardCellsFromMap(map, settings = state.settings) {
+  if (!map) return [];
+  const cells = map.cells.map((cell, index) => ({
+    index,
+    type: cell.type,
+    delayMs: cell.delayMs,
+    displayedInstruction: {
+      light: cell.displayedInstruction.light,
+      slots: [...cell.displayedInstruction.slots],
+      displayKeys: slotSequenceToInputs(cell.displayedInstruction.slots, settings),
+    },
+  }));
   cells.forEach((cell, index) => {
     const previousDisplayed = cells[index - 1]?.displayedInstruction || null;
     cell.requiredInstruction = getRequiredInstruction(
@@ -960,6 +1250,7 @@ function applyRouteEvents(cells, settings) {
       settings,
     );
   });
+  return cells;
 }
 
 function generateRouteDelays(settings, routeLength) {
@@ -1085,6 +1376,7 @@ function scheduleSlotVoice(stimulusId) {
 function cloneInstruction(instruction) {
   return {
     ...instruction,
+    slots: Array.isArray(instruction.slots) ? [...instruction.slots] : [],
     displayKeys: instructionDisplayKeys(instruction),
     effectiveKeys: instructionEffectiveKeys(instruction),
   };
@@ -1520,6 +1812,7 @@ function finishSession() {
 function recordSessionHistory() {
   if (state.sessionHistorySaved || !state.sessionStartedAt || !state.sessionEndedAt) return;
   const metrics = getMetrics();
+  const map = state.activeMap || getSelectedMap();
   const entry = {
     id: `${state.sessionEndedAt}-${Math.random().toString(36).slice(2, 8)}`,
     startedAt: state.sessionStartedAt,
@@ -1527,6 +1820,8 @@ function recordSessionHistory() {
     durationMs: getSessionDurationMs(),
     presetId: state.selectedPresetId,
     presetLabel: CUSTOM_LABELS[state.selectedPresetId] || "Custom",
+    mapId: map?.id || "",
+    mapName: map?.name || "Unknown map",
     progress: metrics.progress,
     reachedPage: metrics.reachedPage,
     totalPages: metrics.totalPages,
@@ -1550,6 +1845,7 @@ function recordSessionHistory() {
 function restart() {
   state.screen = "config";
   state.phase = "idle";
+  state.activeMap = null;
   clearTimers();
   releaseGamePointerLock();
   releaseGameFullscreen();
@@ -1655,13 +1951,16 @@ function renderConfig() {
   const s = state.settings;
   const currentLabel = CUSTOM_LABELS[state.selectedPresetId] || "Custom 1";
   const saveLabel = `Save ${currentLabel}`;
+  const selectedMap = getSelectedMap();
+  const mapValidation = validateMapForRun(selectedMap, s);
+  const startDisabled = mapValidation.ok ? "" : "disabled";
   app.innerHTML = `
     <section class="screen config-screen">
       <div class="config-shell">
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V6.2 forest route training: fading cue sequences, optional lives, and page tracking over longer routes.</p>
+            <p class="subtitle">V7 map mode: generate a saved route map, then replay it with the current run settings.</p>
           </div>
         </div>
 
@@ -1669,7 +1968,7 @@ function renderConfig() {
           <div class="preset-card-header">
             <div>
               <label>Settings</label>
-              <p class="card-help">Pick one custom settings set, edit values below, then save when you want to keep it.</p>
+              <p class="card-help">Pick one custom settings set. Map settings affect future generated maps; run settings affect each play session.</p>
             </div>
             <div class="preset-actions">
               <button id="restorePresetBtn" type="button">Restore Defaults</button>
@@ -1686,42 +1985,56 @@ function renderConfig() {
           </div>
         </div>
 
+        ${renderMapLibrary(selectedMap, mapValidation)}
+
         <div class="current-preset">
           <div class="panel-header">
-            <h2>Current Settings</h2>
+            <h2>Map Settings</h2>
             <span>${currentLabel}</span>
           </div>
           <div class="preset-sections">
-            ${settingsSection("Timing", "Cue timing, response windows, and audio prompts.", `
+            ${settingsSection("Route Shape", "These values are frozen into newly generated maps.", `
+              ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
+              ${numberField("routePageCount", "Route pages", s.routePageCount, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
+              ${numberField("mapSlotPairs", "Slot pairs", s.mapSlotPairs, 1, 2, 1)}
+              ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
+              ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
+              ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
+            `)}
+            ${settingsSection("Map Events", "Generated maps save each cue, zone, and wait time.", `
+              ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
+              ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
+              ${numberField("delayBlockSize", "Delay block size", s.delayBlockSize, 1, MAX_PATH_LENGTH, 1)}
+              ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
+              ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
+              ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
+              ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
+              ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+            `)}
+          </div>
+        </div>
+
+        <div class="current-preset">
+          <div class="panel-header">
+            <h2>Run Settings</h2>
+            <span>Applied when a selected map starts</span>
+          </div>
+          <div class="preset-sections">
+            ${settingsSection("Timing", "Response windows and audio prompts can change between runs.", `
               ${toggleField("adaptiveResponseEnabled", "Adaptive window", s.adaptiveResponseEnabled)}
               ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 1, 10, 1)}
               ${numberField("adaptiveDecreasePercent", "Decrease %", s.adaptiveDecreasePercent, 0, 50, 1)}
               ${numberField("adaptiveIncreasePercent", "Increase %", s.adaptiveIncreasePercent, 0, 50, 1)}
-              ${numberField("baseInterval", "Cue interval ms", s.baseInterval, 400, 4000, 50)}
-              ${numberField("jitter", "Random jitter ms", s.jitter, 0, 2000, 50)}
               ${numberField("responseWindow", "Response window ms", s.responseWindow, MIN_RESPONSE_WINDOW, MAX_RESPONSE_WINDOW, 50)}
               ${numberField("firstResponseKeyBonusMs", "First window bonus / key ms", s.firstResponseKeyBonusMs, 0, 1000, 50)}
               ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
               ${toggleField("slotVoiceEnabled", "Slot voice", s.slotVoiceEnabled)}
               ${toggleField("distinctNoGoToneEnabled", "Distinct NO-GO tone", s.distinctNoGoToneEnabled)}
-              ${toggleField("livesEnabled", "Lives", s.livesEnabled)}
-              ${numberField("maxLives", "Max lives", s.maxLives, 1, MAX_LIVES, 1)}
-            `)}
-            ${settingsSection("Route", "Board length and how wait times are distributed across spaces.", `
-              ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
-              ${numberField("routePageCount", "Route pages", s.routePageCount, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
-              ${numberField("delayBlockSize", "Delay block size", s.delayBlockSize, 1, MAX_PATH_LENGTH, 1)}
-              ${numberField("delayBalance", "Delay balance", s.delayBalance, 0, 1, 0.05)}
               ${numberField("delayColorStrength", "Delay color strength", s.delayColorStrength, 0, 1, 0.05)}
             `)}
-            ${settingsSection("Sequence & Rules", "Multi-key growth, NO-GO rate, and special route zones.", `
-              ${numberField("sequenceStartPage", "Sequence start page", s.sequenceStartPage, 1, Math.min(MAX_ROUTE_PAGE_COUNT, Math.floor(MAX_PATH_LENGTH / s.routePageSize)), 1)}
-              ${numberField("sequenceIncrementPages", "Sequence page step", s.sequenceIncrementPages, 1, 20, 1)}
-              ${numberField("maxSequenceLength", "Max sequence length", s.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, 1)}
-              ${numberField("redRate", "Red light rate %", s.redRate, 0, 80, 5)}
-              ${numberField("reverseZones", "Reverse zones", s.reverseZones, 0, 6, 1)}
-              ${numberField("nbackZones", "1-back zones", s.nbackZones, 0, 6, 1)}
-              ${numberField("abAlternation", "AB alternation", s.abAlternation, 0, 1, 0.05)}
+            ${settingsSection("Lives", "Lives affect only the current run, not the selected map.", `
+              ${toggleField("livesEnabled", "Lives", s.livesEnabled)}
+              ${numberField("maxLives", "Max lives", s.maxLives, 1, MAX_LIVES, 1)}
             `)}
           </div>
         </div>
@@ -1749,10 +2062,10 @@ function renderConfig() {
         </div>
 
         <div class="actions">
-          <p class="safety">Make sure the floor is clear. Place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals, so each cue creates real movement.</p>
+          <p class="safety ${state.messageTone}">${escapeHtml(state.message || "Make sure the floor is clear. Place group A and group B inputs far apart.")}</p>
           <div class="action-buttons">
             <button id="historyBtn" type="button">History</button>
-            <button class="primary" id="startBtn">Start Training</button>
+            <button class="primary" id="startBtn" ${startDisabled}>Start Training</button>
           </div>
         </div>
       </div>
@@ -1776,8 +2089,60 @@ function renderConfig() {
   document.getElementById("soundTestBtn").addEventListener("click", () => playSound("success"));
   document.getElementById("restorePresetBtn").addEventListener("click", restoreCurrentDefaultPreset);
   document.getElementById("savePresetBtn").addEventListener("click", saveCurrentPreset);
+  document.getElementById("generateMapBtn").addEventListener("click", generateMapFromCurrentSettings);
+  document.getElementById("renameMapBtn").addEventListener("click", renameSelectedMap);
+  document.getElementById("deleteMapBtn").addEventListener("click", deleteSelectedMap);
+  document.querySelectorAll("[data-map-id]").forEach((button) => {
+    button.addEventListener("click", () => selectMap(button.dataset.mapId));
+  });
   document.getElementById("historyBtn").addEventListener("click", showHistory);
   document.getElementById("startBtn").addEventListener("click", startGame);
+}
+
+function renderMapLibrary(selectedMap, mapValidation) {
+  const mapList = state.maps.length
+    ? state.maps
+        .map(
+          (map) => `
+            <button type="button" class="map-list-item ${map.id === state.selectedMapId ? "active" : ""}" data-map-id="${map.id}">
+              <strong>${escapeHtml(map.name)}</strong>
+              <span>${map.pathLength} spaces | ${map.routePageCount} pages | ${formatSlotList(map.requiredSlots)}</span>
+              <span>${formatHistoryDate(map.createdAt)}</span>
+            </button>
+          `,
+        )
+        .join("")
+    : `<div class="map-empty">No saved maps yet. Generate a map from the current map settings.</div>`;
+  return `
+    <div class="current-preset map-panel">
+      <div class="panel-header">
+        <h2>Maps</h2>
+        <span>${selectedMap ? escapeHtml(selectedMap.name) : "No map selected"}</span>
+      </div>
+      <div class="map-panel-body">
+        <div class="map-actions">
+          <button class="primary" id="generateMapBtn" type="button">Generate Map</button>
+          <button id="renameMapBtn" type="button" ${selectedMap ? "" : "disabled"}>Rename</button>
+          <button id="deleteMapBtn" type="button" ${selectedMap ? "" : "disabled"}>Delete</button>
+        </div>
+        <div class="map-list">${mapList}</div>
+        <p class="map-status ${mapValidation.ok ? "good" : "bad"}">${escapeHtml(mapValidation.ok ? "Selected map is ready for the current input slots." : mapValidation.message)}</p>
+      </div>
+    </div>
+  `;
+}
+
+function formatSlotList(slots) {
+  return slots?.length ? slots.join(", ") : "No slots";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function numberField(key, label, value, min, max, step) {
@@ -2038,7 +2403,7 @@ function getTargetContent() {
     <div class="target-sequence">
       ${keys.map((key, index) => `
         <span class="target-sequence-item ${state.phase === "rightStimulus" && index === state.currentStimulus.stepIndex ? "current-step" : ""}">
-          ${cueSlotVisual(key)}
+          ${slotVisual(key)}
         </span>
       `).join("")}
     </div>
@@ -2135,7 +2500,7 @@ function renderHistoryList() {
         <article class="history-item">
           <div>
             <strong>${formatHistoryDate(entry.endedAt)}</strong>
-            <span>${entry.presetLabel || "Custom"} | ${formatSessionDuration(entry.durationMs || 0)} | ${entry.progress || "0/0"} | ${formatHistoryPage(entry)}</span>
+            <span>${escapeHtml(entry.mapName || entry.presetLabel || "Custom")} | ${formatSessionDuration(entry.durationMs || 0)} | ${entry.progress || "0/0"} | ${formatHistoryPage(entry)}</span>
           </div>
           <div class="history-stats">
             <span>Hit ${entry.hitRate || 0}%</span>

@@ -18,14 +18,16 @@ If you have ADHD or other health concerns, please consult a qualified profession
 
 ## Current Rules
 
-- V6.2 uses a forest route board with a static route event plan generated before each run.
+- V7 uses map mode: generate a saved forest route map first, then select that map for later training runs.
 - During a run, a central pixel cue shows GO / NO-GO and abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V6.2 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
+- V7 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
+- Saved maps are stored locally in the browser. Each map contains route spaces, special zones, GO / NO-GO cues, abstract slot sequences, and per-space cue delays.
+- Map settings affect newly generated maps. Run settings such as response window, lives, adaptive mode, audio, delay color strength, and physical input bindings can be changed before replaying the same map.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
-- GO / NO-GO, displayed key sequence, required action sequence, and cue delay are generated for every route space when the run starts.
-- During a run, each route space keeps its generated values. If the explorer moves back and revisits a space, the same cue and delay are used again.
+- GO / NO-GO, displayed slot sequence, and cue delay are generated for every route space when a map is generated.
+- During every run on the same map, each route space keeps its saved cue and delay. If the explorer moves back and revisits a space, the same cue and delay are used again.
 - Route spaces can show generated wait time with color depth: shorter waits are lighter, longer waits are darker.
 - On a correct action, the pixel explorer moves forward one space.
 - On a wrong action or missed green GO cue, the explorer moves back one space.
@@ -62,6 +64,9 @@ GO / NO-GO inputs:
 - `Custom 1` / `Custom 2` / `Custom 3`: saved setting slots stored in the browser. `Save` writes the current editor values to the selected slot.
 - `Restore Defaults`: reloads the selected slot's default values into the editor without overwriting saved browser values unless you press `Save`.
 - `defaults.js`: external default settings source. Edit `window.MOVE_THINK_DEFAULT_PRESET` to change the defaults used by `Restore Defaults` and first-time startup.
+- `Generate Map`: creates a new saved map from the current Map Settings and selects it.
+- `Maps`: local browser map library. Select one saved map before starting training; maps can be renamed or deleted.
+- `Slot pairs`: whether newly generated maps use only `A1/B1` or may also use `A2/B2`. A map that needs `A2/B2` cannot start until those input slots are assigned.
 - `Cue interval ms`: minimum delay after the previous cue is resolved before the next cue appears.
 - `Random jitter ms`: extra random delay added to the cue interval. For example, `1500` plus `500` means the next cue appears after `1500-2000ms`.
 - `Delay block size`: number of consecutive route spaces that share one generated cue delay. For example, `10` means spaces 1-10 share one delay, spaces 11-20 share another, and so on.
