@@ -1870,6 +1870,155 @@ h1 {
   }
 }
 
+@media (orientation: landscape) and (max-height: 560px) and (pointer: coarse), (orientation: landscape) and (max-height: 560px) and (hover: none) {
+  .game-screen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    border-width: 4px;
+  }
+
+  .forest-stage {
+    padding: 6px;
+  }
+
+  .forest-stage::before {
+    height: 34%;
+  }
+
+  .forest-canopy {
+    width: 52px;
+    height: 38px;
+    border-width: 3px;
+  }
+
+  .canopy-a {
+    top: 18px;
+    left: 18px;
+  }
+
+  .canopy-b {
+    top: 28px;
+    right: 24px;
+  }
+
+  .canopy-c {
+    right: 20%;
+    bottom: 70px;
+  }
+
+  .route-svg,
+  .forest-map {
+    top: 18px;
+    right: 18px;
+    bottom: 92px;
+    left: 18px;
+    width: calc(100% - 36px);
+    height: calc(100% - 110px);
+  }
+
+  .trail-cell {
+    width: clamp(28px, 5.6vw, 40px);
+    height: clamp(28px, 5.6vw, 40px);
+    border-width: 3px;
+    box-shadow:
+      inset -3px -3px 0 rgba(0, 0, 0, 0.18),
+      3px 3px 0 #18132f;
+  }
+
+  .trail-index {
+    top: 2px;
+    left: 3px;
+    font-size: 7px;
+  }
+
+  .trail-label {
+    font-size: 9px;
+  }
+
+  .trail-player {
+    width: 18px;
+    height: 20px;
+  }
+
+  .game-screen .game-hud {
+    left: 8px;
+    right: 8px;
+    bottom: max(6px, env(safe-area-inset-bottom));
+    max-height: 72px;
+    justify-content: center;
+    align-content: flex-end;
+    gap: 4px;
+    overflow: hidden;
+  }
+
+  .game-screen .response-timer {
+    left: 8px;
+    right: 8px;
+    bottom: calc(max(6px, env(safe-area-inset-bottom)) + 78px);
+    height: 10px;
+    border-width: 3px;
+  }
+
+  .game-screen .hud-chip {
+    min-height: 26px;
+    gap: 5px;
+    padding: 3px 6px;
+    border-width: 3px;
+    box-shadow: 3px 3px 0 #18132f;
+  }
+
+  .game-screen .hud-chip strong {
+    font-size: 13px;
+  }
+
+  .game-screen .hud-chip .hud-label {
+    font-size: 8px;
+  }
+
+  .game-screen .lives-chip {
+    flex: 1 1 100%;
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  .game-screen .life-track {
+    max-width: calc(100vw - 76px);
+    gap: 2px;
+    justify-content: center;
+  }
+
+  .game-screen .life-heart {
+    width: 7px;
+    height: 7px;
+    border-width: 1px;
+    box-shadow: 1px 1px 0 #18132f;
+  }
+
+  .game-screen .cue-card {
+    width: min(300px, calc(100vw - 32px));
+    padding: 8px 10px 7px;
+  }
+
+  .game-screen .cue-light {
+    min-width: 96px;
+    padding: 6px 10px;
+    font-size: 26px;
+  }
+
+  .game-screen .cue-target .target-sequence .key-visual {
+    font-size: clamp(22px, 4vw, 32px);
+  }
+
+  .game-screen .cue-target .target-sequence .mouse-visual {
+    font-size: clamp(36px, 6vw, 48px);
+  }
+}
+
 @media (max-width: 560px) {
   .screen {
     padding: 12px;
