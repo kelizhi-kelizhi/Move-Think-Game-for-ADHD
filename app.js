@@ -20,11 +20,11 @@ const DEFAULT_INPUT_GROUPS = {
 
 const EMPTY_INPUT_OPTION = { id: "", label: "Empty" };
 
-const MAX_PATH_LENGTH = 420;
+const MAX_PATH_LENGTH = 1000;
 const DEFAULT_ROUTE_PAGE_SIZE = 42;
 const MIN_ROUTE_PAGE_SIZE = 8;
 const MAX_ROUTE_PAGE_SIZE = 84;
-const MAX_ROUTE_PAGE_COUNT = 20;
+const MAX_ROUTE_PAGE_COUNT = 50;
 const MIN_RESPONSE_WINDOW = 400;
 const MAX_RESPONSE_WINDOW = 4000;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
@@ -44,6 +44,8 @@ const DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS = 50;
 const DEFAULT_ADAPTIVE_STREAK_TARGET = 3;
 const DEFAULT_ADAPTIVE_DECREASE_PERCENT = 5;
 const DEFAULT_ADAPTIVE_INCREASE_PERCENT = 8;
+const DEFAULT_MAX_LIVES = 10;
+const MAX_LIVES = 50;
 const SLOT_VOICE_DELAY_MS = 50;
 const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
 const SLOT_AUDIO_PATHS = {
@@ -67,6 +69,9 @@ const FALLBACK_PRESET = {
   adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
   cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
   slotVoiceEnabled: true,
+  distinctNoGoToneEnabled: false,
+  livesEnabled: false,
+  maxLives: DEFAULT_MAX_LIVES,
   sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
   sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
   maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
@@ -100,6 +105,9 @@ const SETTING_HELP = {
   adaptiveIncreasePercent: "Percentage used to grow the adaptive response window and first-window bonus after one error.",
   cueVisibleMs: "How long the target keys stay visible before fading out. Must be shorter than the response window.",
   slotVoiceEnabled: "Whether to play A1, B1, A2, and B2 voice cues during the response window.",
+  distinctNoGoToneEnabled: "When on, NO-GO cue start tones use 500Hz for stronger contrast from GO cues.",
+  livesEnabled: "When on, each error removes one life and the run ends when lives reach zero.",
+  maxLives: "Number of lives at the start of a run when lives are enabled.",
   sequenceStartPage: "First route page where the target sequence starts growing beyond one key.",
   sequenceIncrementPages: "How many pages pass before the target sequence gains another key.",
   maxSequenceLength: "Maximum number of keys that can appear in one route-space sequence.",
@@ -132,6 +140,7 @@ const state = {
   phase: "idle",
   score: 0,
   combo: 0,
+  lives: 0,
   boardCells: [],
   boardPosition: 0,
   previousBoardPosition: 0,
@@ -222,6 +231,9 @@ function cleanPreset(preset) {
     ),
     cueVisibleMs: 0,
     slotVoiceEnabled: preset.slotVoiceEnabled === false ? false : true,
+    distinctNoGoToneEnabled: preset.distinctNoGoToneEnabled === true,
+    livesEnabled: preset.livesEnabled === true,
+    maxLives: Math.round(clampNumber(preset.maxLives, 1, MAX_LIVES, DEFAULT_MAX_LIVES)),
     sequenceStartPage: clampNumber(preset.sequenceStartPage, 1, maxRoutePageCount, DEFAULT_SEQUENCE_START_PAGE),
     sequenceIncrementPages: clampNumber(preset.sequenceIncrementPages, 1, 20, DEFAULT_SEQUENCE_INCREMENT_PAGES),
     maxSequenceLength: clampNumber(preset.maxSequenceLength, 1, MAX_SEQUENCE_LENGTH, DEFAULT_MAX_SEQUENCE_LENGTH),
@@ -397,7 +409,7 @@ function playSound(kind) {
   if (kind === "cue") {
     playTone(660, now, 0.07, "triangle", 0.42);
   } else if (kind === "nogoCue") {
-    playTone(620, now, 0.07, "triangle", 0.42);
+    playTone(state.settings.distinctNoGoToneEnabled ? 500 : 620, now, 0.07, "triangle", 0.42);
   } else if (kind === "step") {
     playTone(784, now, 0.06, "square", 0.35);
     playTone(988, now + 0.06, 0.07, "square", 0.28);
@@ -806,7 +818,12 @@ function updateSetting(key, value) {
     render();
     return;
   }
-  if (key === "slotVoiceEnabled" || key === "adaptiveResponseEnabled") {
+  if (
+    key === "slotVoiceEnabled" ||
+    key === "adaptiveResponseEnabled" ||
+    key === "distinctNoGoToneEnabled" ||
+    key === "livesEnabled"
+  ) {
     state.settings[key] = value === true || value === "true";
     state.settings = cleanPreset(state.settings);
     if (key === "slotVoiceEnabled" && !state.settings[key]) stopSlotAudio();
@@ -877,6 +894,7 @@ function startGame() {
   state.phase = "waiting";
   state.score = 0;
   state.combo = 0;
+  state.lives = state.settings.maxLives;
   state.boardCells = generateBoardCells(state.settings);
   state.boardPosition = 0;
   state.previousBoardPosition = 0;
@@ -1329,6 +1347,7 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     state.combo = 0;
     playSound("error");
     movePlayer(-1);
+    reduceLife();
     setMessage(errorMessage(result, stimulus), "bad");
   }
 
@@ -1352,6 +1371,7 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     responseWindow: trialResponseWindow,
     firstResponseKeyBonusMs: trialFirstResponseKeyBonusMs,
     adaptiveMultiplier: Number(adaptiveMultiplier.toFixed(4)),
+    livesRemaining: state.settings.livesEnabled ? state.lives : null,
     result,
     success,
   });
@@ -1363,12 +1383,24 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   state.timerPercent = 0;
   setMessage("Ready... wait for the target cue.", "");
   render();
-  if (state.boardPosition >= state.boardCells.length - 1) {
+  if (isOutOfLives()) {
+    playSound("finish");
+    setTimer(finishSession, 750);
+  } else if (state.boardPosition >= state.boardCells.length - 1) {
     playSound("finish");
     setTimer(finishSession, 750);
   } else {
     queueNextStimulus();
   }
+}
+
+function reduceLife() {
+  if (!state.settings.livesEnabled) return;
+  state.lives = Math.max(0, state.lives - 1);
+}
+
+function isOutOfLives() {
+  return state.settings.livesEnabled && state.lives <= 0;
 }
 
 function updateAdaptiveAfterTrial(stimulus, success) {
@@ -1495,6 +1527,9 @@ function recordSessionHistory() {
     presetId: state.selectedPresetId,
     presetLabel: CUSTOM_LABELS[state.selectedPresetId] || "Custom",
     progress: metrics.progress,
+    reachedPage: metrics.reachedPage,
+    totalPages: metrics.totalPages,
+    reachedPageLabel: metrics.reachedPageLabel,
     hitRate: metrics.hitRate,
     avgRt: metrics.avgRt,
     noGoErrors: metrics.noGoErrors,
@@ -1548,12 +1583,37 @@ function getMetrics() {
   const nbackErrors = state.trials.filter((trial) => trial.rule === "nback1" && !trial.success).length;
   const hitRate = goTrials.length === 0 ? 0 : Math.round((goHits / goTrials.length) * 100);
   const progress = `${state.boardPosition + 1}/${state.boardCells.length}`;
+  const pageInfo = getReachedPageInfo();
   const duration = formatSessionDuration(getSessionDurationMs());
   const finalResponseWindow = getScaledResponseWindow(
     state.settings,
     state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1,
   );
-  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress, duration, finalResponseWindow };
+  return {
+    hitRate,
+    noGoErrors,
+    avgRt,
+    reverseErrors,
+    nbackErrors,
+    progress,
+    reachedPage: pageInfo.current,
+    totalPages: pageInfo.total,
+    reachedPageLabel: pageInfo.label,
+    duration,
+    finalResponseWindow,
+  };
+}
+
+function getReachedPageInfo(position = state.boardPosition) {
+  const routePageSize = getRoutePageSize();
+  const totalSpaces = Math.max(1, state.boardCells.length || state.settings.pathLength || routePageSize);
+  const total = Math.max(1, Math.ceil(totalSpaces / routePageSize));
+  const current = Math.max(1, Math.min(total, Math.floor(Math.max(0, position) / routePageSize) + 1));
+  return {
+    current,
+    total,
+    label: `Page ${current}/${total}`,
+  };
 }
 
 function getHistoryMetrics() {
@@ -1600,7 +1660,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V6.1 forest route training: fading cue sequences appear over the route while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V6.2 forest route training: fading cue sequences, optional lives, and page tracking over longer routes.</p>
           </div>
         </div>
 
@@ -1642,6 +1702,9 @@ function renderConfig() {
               ${numberField("firstResponseKeyBonusMs", "First window bonus / key ms", s.firstResponseKeyBonusMs, 0, 1000, 50)}
               ${numberField("cueVisibleMs", "Cue visible ms", s.cueVisibleMs, 100, Math.max(100, s.responseWindow - 50), 50)}
               ${toggleField("slotVoiceEnabled", "Slot voice", s.slotVoiceEnabled)}
+              ${toggleField("distinctNoGoToneEnabled", "Distinct NO-GO tone", s.distinctNoGoToneEnabled)}
+              ${toggleField("livesEnabled", "Lives", s.livesEnabled)}
+              ${numberField("maxLives", "Max lives", s.maxLives, 1, MAX_LIVES, 1)}
             `)}
             ${settingsSection("Route", "Board length and how wait times are distributed across spaces.", `
               ${numberField("routePageSize", "Spaces per page", s.routePageSize, MIN_ROUTE_PAGE_SIZE, Math.min(MAX_ROUTE_PAGE_SIZE, MAX_PATH_LENGTH), 1)}
@@ -1794,11 +1857,43 @@ function renderGame() {
       ${renderBoard()}
       ${renderCueOverlay()}
       ${renderResponseTimer()}
-      <div class="game-message message-bar ${state.messageTone}">${state.message}</div>
+      ${renderGameHud()}
       ${state.isPaused ? renderPauseOverlay() : ""}
     </section>
   `;
   updateTimerDom();
+}
+
+function renderGameHud() {
+  const pageInfo = getReachedPageInfo();
+  const progress = state.boardCells.length ? `${state.boardPosition + 1}/${state.boardCells.length}` : "0/0";
+  return `
+    <div class="game-hud" aria-label="Game status">
+      <div class="hud-chip">
+        <span class="hud-label">Page</span>
+        <strong>${pageInfo.current}/${pageInfo.total}</strong>
+      </div>
+      <div class="hud-chip">
+        <span class="hud-label">Progress</span>
+        <strong>${progress}</strong>
+      </div>
+      ${renderLivesHud()}
+    </div>
+  `;
+}
+
+function renderLivesHud() {
+  if (!state.settings.livesEnabled) return "";
+  const maxLives = Math.max(1, Math.round(state.settings.maxLives || DEFAULT_MAX_LIVES));
+  const lives = Math.max(0, Math.min(maxLives, state.lives));
+  return `
+    <div class="hud-chip lives-chip" aria-label="Lives ${lives} of ${maxLives}">
+      <span class="hud-label">Lives</span>
+      <div class="life-track">
+        ${Array.from({ length: maxLives }, (_, index) => `<span class="life-heart ${index < lives ? "full" : "empty"}"></span>`).join("")}
+      </div>
+    </div>
+  `;
 }
 
 function renderPauseOverlay() {
@@ -1979,6 +2074,7 @@ function renderSummary() {
         </div>
         <div class="summary-grid">
           ${metricCard("Progress", metrics.progress)}
+          ${metricCard("Page reached", metrics.reachedPageLabel)}
           ${metricCard("Time", metrics.duration)}
           ${metricCard("Hit rate", `${metrics.hitRate}%`)}
           ${metricCard("No-go errors", metrics.noGoErrors)}
@@ -2038,7 +2134,7 @@ function renderHistoryList() {
         <article class="history-item">
           <div>
             <strong>${formatHistoryDate(entry.endedAt)}</strong>
-            <span>${entry.presetLabel || "Custom"} | ${formatSessionDuration(entry.durationMs || 0)} | ${entry.progress || "0/0"}</span>
+            <span>${entry.presetLabel || "Custom"} | ${formatSessionDuration(entry.durationMs || 0)} | ${entry.progress || "0/0"} | ${formatHistoryPage(entry)}</span>
           </div>
           <div class="history-stats">
             <span>Hit ${entry.hitRate || 0}%</span>
@@ -2050,6 +2146,16 @@ function renderHistoryList() {
       `).join("")}
     </div>
   `;
+}
+
+function formatHistoryPage(entry) {
+  if (entry.reachedPageLabel) return entry.reachedPageLabel;
+  const reachedPage = Number(entry.reachedPage);
+  const totalPages = Number(entry.totalPages);
+  if (Number.isFinite(reachedPage) && reachedPage > 0 && Number.isFinite(totalPages) && totalPages > 0) {
+    return `Page ${reachedPage}/${totalPages}`;
+  }
+  return "Page -";
 }
 
 function historyErrorCount(entry) {

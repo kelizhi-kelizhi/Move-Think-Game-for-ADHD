@@ -18,9 +18,9 @@ If you have ADHD or other health concerns, please consult a qualified profession
 
 ## Current Rules
 
-- V6.1 uses a forest route board with a static route event plan generated before each run.
+- V6.2 uses a forest route board with a static route event plan generated before each run.
 - During a run, a central pixel cue shows GO / NO-GO and abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V6.1 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
+- V6.2 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
@@ -33,14 +33,17 @@ If you have ADHD or other health concerns, please consult a qualified profession
 - Routes can be longer than one screen. `Spaces per page` controls how many spaces are shown before the board switches to the next page.
 - Later pages can require multi-key GO sequences. By default page 1 uses one key, page 2 uses two keys, and page 3+ uses up to three keys.
 - When `Slot voice` is on, A1/B1/A2/B2 voice cues play during the GO / NO-GO response window. If the trial ends before the voice finishes, playback stops when the game returns to Ready.
+- When `Distinct NO-GO tone` is on, NO-GO cue start tones use 500Hz while GO cue start tones keep their normal pitch.
+- When `Lives` is on, each wrong action, false alarm, or missed green GO cue removes one life. The session ends when lives reach zero.
 - GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
 - The first response window in each route space can be extended by a configured amount per displayed key. The default is `50ms` per key, and `0` disables the extra time.
 - Adaptive response mode uses an N-up / 1-down rule. Complete green GO spaces in a row shrink both the base response window and the first-window bonus. One error grows both values. Correct NO-GO spaces do not count toward the streak, but false alarms count as errors.
 - When adaptive response mode is on, each run starts from the configured response window and adjusts only within that run.
-- The summary screen shows the final response window after the last adaptive update.
+- The game HUD shows the current page, route progress, and optional pixel-heart lives. The old bottom instruction message is hidden during play.
+- The summary screen shows the final response window and the page reached.
 - Completed sessions are saved to local browser history and can be viewed from the settings screen.
 - NO-GO sequences require no input for one response window, regardless of sequence length.
-- The session ends when the explorer reaches the finish space.
+- The session ends when the explorer reaches the finish space or when enabled lives reach zero.
 - Purple route spaces are reverse zones: green cues use the matching slot in the other input group, so A1 maps to B1 and A2 maps to B2.
 - Blue route spaces are 1-back zones: while standing on that space, perform the previous route space's generated cue sequence, including both GO and NO-GO.
 - 1-back only applies while standing on a 1-back space. Leaving the zone restores normal current-cue rules.
@@ -72,11 +75,14 @@ GO / NO-GO inputs:
 - `Increase %`: percentage growth applied after one error.
 - `Cue visible ms`: total time the target slot sequence stays visible during the response window. It must be shorter than `Response window ms`.
 - `Slot voice`: whether to play A1/B1/A2/B2 voice cues during the response window.
+- `Distinct NO-GO tone`: whether NO-GO cue start tones use 500Hz for stronger contrast from GO cues.
+- `Lives`: whether errors remove lives and the run ends when no lives remain.
+- `Max lives`: number of lives at run start when `Lives` is enabled. It can be set from `1` to `50`.
 - `Sequence start page`: first page where sequence length grows beyond one key.
 - `Sequence page step`: number of pages between each sequence length increase.
 - `Max sequence length`: cap on keys in one route-space sequence.
 - `Spaces per page`: number of route spaces shown on each page.
-- `Route pages`: total number of route pages. Total route spaces equal `Spaces per page` multiplied by `Route pages`, up to `420`.
+- `Route pages`: total number of route pages. Total route spaces equal `Spaces per page` multiplied by `Route pages`, up to `1000`. The page count can be set up to `50`.
 - `Red light rate %`: chance that a cue is NO-GO.
 - `Reverse zones`: number of purple reverse segments on the route. Reverse uses group-slot mapping, not physical left/right mapping.
 - `1-back zones`: number of blue 1-back segments on the route.
