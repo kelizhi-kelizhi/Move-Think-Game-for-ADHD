@@ -29,8 +29,9 @@ const MIN_RESPONSE_WINDOW = 400;
 const MAX_RESPONSE_WINDOW = 4000;
 const STORAGE_KEY = "moveThinkCustomPresetsV21";
 const SOUND_STORAGE_KEY = "moveThinkSoundSettingsV1";
-const ADAPTIVE_STORAGE_KEY = "moveThinkAdaptiveResponseHistoryV1";
+const HISTORY_STORAGE_KEY = "moveThinkSessionHistoryV1";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
+const MAX_HISTORY_ENTRIES = 100;
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 const DEFAULT_CUE_VISIBLE_MS = 750;
 const DEFAULT_SOUND_VOLUME = 0.28;
@@ -52,88 +53,31 @@ const SLOT_AUDIO_PATHS = {
   B2: "assets/audio/b2.mp3",
 };
 
-const SYSTEM_PRESETS = {
-  easy: {
-    label: "Easy",
-    baseInterval: 1800,
-    jitter: 300,
-    delayBlockSize: 1,
-    delayBalance: 0,
-    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
-    responseWindow: 1800,
-    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
-    adaptiveResponseEnabled: false,
-    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
-    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
-    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
-    cueVisibleMs: 950,
-    slotVoiceEnabled: true,
-    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
-    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
-    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
-    routePageSize: 18,
-    routePageCount: 1,
-    pathLength: 18,
-    redRate: 25,
-    reverseZones: 1,
-    nbackZones: 1,
-    abAlternation: 0,
-    ...DEFAULT_INPUT_GROUPS,
-  },
-  normal: {
-    label: "Normal",
-    baseInterval: 1500,
-    jitter: 450,
-    delayBlockSize: 1,
-    delayBalance: 0,
-    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
-    responseWindow: 1500,
-    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
-    adaptiveResponseEnabled: false,
-    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
-    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
-    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
-    cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
-    slotVoiceEnabled: true,
-    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
-    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
-    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
-    routePageSize: 24,
-    routePageCount: 1,
-    pathLength: 24,
-    redRate: 30,
-    reverseZones: 2,
-    nbackZones: 1,
-    abAlternation: 0,
-    ...DEFAULT_INPUT_GROUPS,
-  },
-  hard: {
-    label: "Hard",
-    baseInterval: 1100,
-    jitter: 550,
-    delayBlockSize: 1,
-    delayBalance: 0,
-    delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
-    responseWindow: 1100,
-    firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
-    adaptiveResponseEnabled: false,
-    adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
-    adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
-    adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
-    cueVisibleMs: 550,
-    slotVoiceEnabled: true,
-    sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
-    sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
-    maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
-    routePageSize: 30,
-    routePageCount: 1,
-    pathLength: 30,
-    redRate: 35,
-    reverseZones: 2,
-    nbackZones: 2,
-    abAlternation: 0,
-    ...DEFAULT_INPUT_GROUPS,
-  },
+const FALLBACK_PRESET = {
+  baseInterval: 1500,
+  jitter: 450,
+  delayBlockSize: 1,
+  delayBalance: 0,
+  delayColorStrength: DEFAULT_DELAY_COLOR_STRENGTH,
+  responseWindow: 1500,
+  firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
+  adaptiveResponseEnabled: false,
+  adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
+  adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
+  adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
+  cueVisibleMs: DEFAULT_CUE_VISIBLE_MS,
+  slotVoiceEnabled: true,
+  sequenceStartPage: DEFAULT_SEQUENCE_START_PAGE,
+  sequenceIncrementPages: DEFAULT_SEQUENCE_INCREMENT_PAGES,
+  maxSequenceLength: DEFAULT_MAX_SEQUENCE_LENGTH,
+  routePageSize: DEFAULT_ROUTE_PAGE_SIZE,
+  routePageCount: 1,
+  pathLength: DEFAULT_ROUTE_PAGE_SIZE,
+  redRate: 30,
+  reverseZones: 2,
+  nbackZones: 1,
+  abAlternation: 0,
+  ...DEFAULT_INPUT_GROUPS,
 };
 
 const CUSTOM_LABELS = {
@@ -172,14 +116,14 @@ const SETTING_HELP = {
 };
 
 const savedSoundSettings = loadSoundSettings();
-const savedAdaptiveHistory = loadAdaptiveHistory();
+const savedCustomPresets = loadCustomPresets();
+const savedSessionHistory = loadSessionHistory();
 
 const state = {
   screen: "config",
-  selectedPresetId: "normal",
-  settings: { ...SYSTEM_PRESETS.normal },
-  customPresets: loadCustomPresets(),
-  adaptiveHistory: savedAdaptiveHistory,
+  selectedPresetId: "custom1",
+  settings: { ...savedCustomPresets.custom1 },
+  customPresets: savedCustomPresets,
   soundEnabled: savedSoundSettings.soundEnabled,
   soundVolume: savedSoundSettings.soundVolume,
   audioContext: null,
@@ -215,9 +159,9 @@ const state = {
   messageTone: "",
   trials: [],
   movementHistory: [],
-  adaptivePresetId: null,
+  sessionHistory: savedSessionHistory,
+  sessionHistorySaved: false,
   adaptiveMultiplier: 1,
-  adaptiveSessionStartMultiplier: 1,
   adaptiveCorrectStreak: 0,
   sessionStartedAt: 0,
   sessionEndedAt: 0,
@@ -334,12 +278,28 @@ function cleanInputGroups(settings) {
   }, {});
 }
 
+function getDefaultPresetValues() {
+  const externalDefault =
+    typeof window !== "undefined" && window.MOVE_THINK_DEFAULT_PRESET && typeof window.MOVE_THINK_DEFAULT_PRESET === "object"
+      ? window.MOVE_THINK_DEFAULT_PRESET
+      : {};
+  const legacyExternalPresets =
+    typeof window !== "undefined" && window.MOVE_THINK_DEFAULT_PRESETS && typeof window.MOVE_THINK_DEFAULT_PRESETS === "object"
+      ? window.MOVE_THINK_DEFAULT_PRESETS
+      : {};
+  return CUSTOM_IDS.reduce((presets, id) => {
+    presets[id] = cleanPreset({
+      ...FALLBACK_PRESET,
+      ...externalDefault,
+      ...(legacyExternalPresets[id] || {}),
+      label: CUSTOM_LABELS[id],
+    });
+    return presets;
+  }, {});
+}
+
 function loadCustomPresets() {
-  const defaults = {
-    custom1: { ...SYSTEM_PRESETS.normal, label: CUSTOM_LABELS.custom1 },
-    custom2: { ...SYSTEM_PRESETS.normal, label: CUSTOM_LABELS.custom2 },
-    custom3: { ...SYSTEM_PRESETS.normal, label: CUSTOM_LABELS.custom3 },
-  };
+  const defaults = getDefaultPresetValues();
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     return CUSTOM_IDS.reduce((presets, id) => {
@@ -359,23 +319,6 @@ function loadCustomPresets() {
 
 function saveCustomPresets() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customPresets));
-}
-
-function loadAdaptiveHistory() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(ADAPTIVE_STORAGE_KEY) || "{}");
-    return Object.entries(parsed).reduce((history, [presetId, multiplier]) => {
-      const number = Number(multiplier);
-      if (Number.isFinite(number) && number > 0) history[presetId] = number;
-      return history;
-    }, {});
-  } catch {
-    return {};
-  }
-}
-
-function saveAdaptiveHistory() {
-  localStorage.setItem(ADAPTIVE_STORAGE_KEY, JSON.stringify(state.adaptiveHistory));
 }
 
 function loadSoundSettings() {
@@ -398,6 +341,28 @@ function saveSoundSettings() {
       soundVolume: state.soundVolume,
     }),
   );
+}
+
+function loadSessionHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => entry && typeof entry === "object")
+      .slice(0, MAX_HISTORY_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
+function saveSessionHistory() {
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.sessionHistory.slice(0, MAX_HISTORY_ENTRIES)));
+}
+
+function clearSessionHistory() {
+  state.sessionHistory = [];
+  saveSessionHistory();
+  render();
 }
 
 function ensureAudio() {
@@ -539,20 +504,7 @@ function stopSlotAudio() {
 }
 
 function allPresets() {
-  return { ...SYSTEM_PRESETS, ...state.customPresets };
-}
-
-function getAdaptiveStartValues(settings = state.settings, presetId = state.selectedPresetId) {
-  const multiplier = settings.adaptiveResponseEnabled ? getSavedAdaptiveMultiplier(presetId, settings) : 1;
-  return {
-    multiplier,
-    responseWindow: getScaledResponseWindow(settings, multiplier),
-    firstResponseKeyBonusMs: getScaledFirstResponseKeyBonus(settings, multiplier),
-  };
-}
-
-function getSavedAdaptiveMultiplier(presetId = state.selectedPresetId, settings = state.settings) {
-  return clampAdaptiveMultiplier(state.adaptiveHistory[presetId] ?? 1, settings);
+  return state.customPresets;
 }
 
 function clampAdaptiveMultiplier(multiplier, settings = state.settings) {
@@ -867,7 +819,6 @@ function updateSetting(key, value) {
     return;
   }
   state.settings[key] = Number(value);
-  updateAdaptivePreviewDom();
 }
 
 function syncRouteSettingLimits() {
@@ -904,13 +855,15 @@ function saveCurrentPreset() {
   render();
 }
 
+function restoreCurrentDefaultPreset() {
+  const targetId = CUSTOM_IDS.includes(state.selectedPresetId) ? state.selectedPresetId : "custom1";
+  state.settings = cleanPreset(getDefaultPresetValues()[targetId]);
+  render();
+}
+
 function initializeAdaptiveSession() {
-  state.adaptivePresetId = state.selectedPresetId;
   state.adaptiveCorrectStreak = 0;
-  state.adaptiveSessionStartMultiplier = state.settings.adaptiveResponseEnabled
-    ? getSavedAdaptiveMultiplier(state.adaptivePresetId, state.settings)
-    : 1;
-  state.adaptiveMultiplier = state.adaptiveSessionStartMultiplier;
+  state.adaptiveMultiplier = 1;
 }
 
 function startGame() {
@@ -942,6 +895,7 @@ function startGame() {
   state.movementHistory = [];
   state.sessionStartedAt = Date.now();
   state.sessionEndedAt = 0;
+  state.sessionHistorySaved = false;
   setMessage("Ready... wait for the target cue.", "");
   render();
   scheduleStimulus();
@@ -1437,10 +1391,6 @@ function updateAdaptiveAfterTrial(stimulus, success) {
 function applyAdaptiveMultiplierChange(factor) {
   if (!Number.isFinite(factor) || factor <= 0) return;
   state.adaptiveMultiplier = clampAdaptiveMultiplier(state.adaptiveMultiplier * factor, state.settings);
-  if (state.adaptivePresetId) {
-    state.adaptiveHistory[state.adaptivePresetId] = state.adaptiveMultiplier;
-    saveAdaptiveHistory();
-  }
 }
 
 function successMessage(stimulus) {
@@ -1525,6 +1475,7 @@ function handleRightInput(input) {
 function finishSession() {
   clearTimers();
   state.sessionEndedAt = Date.now();
+  recordSessionHistory();
   state.screen = "summary";
   state.phase = "sessionComplete";
   setMessage("Training complete.", "");
@@ -1533,12 +1484,51 @@ function finishSession() {
   render();
 }
 
+function recordSessionHistory() {
+  if (state.sessionHistorySaved || !state.sessionStartedAt || !state.sessionEndedAt) return;
+  const metrics = getMetrics();
+  const entry = {
+    id: `${state.sessionEndedAt}-${Math.random().toString(36).slice(2, 8)}`,
+    startedAt: state.sessionStartedAt,
+    endedAt: state.sessionEndedAt,
+    durationMs: getSessionDurationMs(),
+    presetId: state.selectedPresetId,
+    presetLabel: CUSTOM_LABELS[state.selectedPresetId] || "Custom",
+    progress: metrics.progress,
+    hitRate: metrics.hitRate,
+    avgRt: metrics.avgRt,
+    noGoErrors: metrics.noGoErrors,
+    reverseErrors: metrics.reverseErrors,
+    nbackErrors: metrics.nbackErrors,
+    finalResponseWindow: metrics.finalResponseWindow,
+    score: state.score,
+    trials: state.trials.length,
+    routeSpaces: state.boardCells.length,
+    adaptiveResponseEnabled: state.settings.adaptiveResponseEnabled,
+  };
+  state.sessionHistory = [entry, ...state.sessionHistory].slice(0, MAX_HISTORY_ENTRIES);
+  state.sessionHistorySaved = true;
+  saveSessionHistory();
+}
+
 function restart() {
   state.screen = "config";
   state.phase = "idle";
   clearTimers();
   releaseGamePointerLock();
   releaseGameFullscreen();
+  render();
+}
+
+function showHistory() {
+  state.screen = "history";
+  state.phase = "idle";
+  render();
+}
+
+function backToConfig() {
+  state.screen = "config";
+  state.phase = "idle";
   render();
 }
 
@@ -1559,7 +1549,31 @@ function getMetrics() {
   const hitRate = goTrials.length === 0 ? 0 : Math.round((goHits / goTrials.length) * 100);
   const progress = `${state.boardPosition + 1}/${state.boardCells.length}`;
   const duration = formatSessionDuration(getSessionDurationMs());
-  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress, duration };
+  const finalResponseWindow = getScaledResponseWindow(
+    state.settings,
+    state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1,
+  );
+  return { hitRate, noGoErrors, avgRt, reverseErrors, nbackErrors, progress, duration, finalResponseWindow };
+}
+
+function getHistoryMetrics() {
+  const entries = state.sessionHistory;
+  const completed = entries.filter((entry) => entry.progress && entry.progress.split("/")[0] === entry.progress.split("/")[1]).length;
+  const avgHitRate = averageMetric(entries, "hitRate");
+  const avgRt = averageMetric(entries.filter((entry) => entry.avgRt > 0), "avgRt");
+  const bestHitRate = entries.length ? Math.max(...entries.map((entry) => entry.hitRate || 0)) : 0;
+  return {
+    sessions: entries.length,
+    completed,
+    avgHitRate,
+    avgRt,
+    bestHitRate,
+  };
+}
+
+function averageMetric(entries, key) {
+  if (!entries.length) return 0;
+  return Math.round(entries.reduce((sum, entry) => sum + (Number(entry[key]) || 0), 0) / entries.length);
 }
 
 function getSessionDurationMs() {
@@ -1578,26 +1592,28 @@ function formatSessionDuration(durationMs) {
 
 function renderConfig() {
   const s = state.settings;
-  const saveLabel = CUSTOM_IDS.includes(state.selectedPresetId)
-    ? `Save ${CUSTOM_LABELS[state.selectedPresetId]}`
-    : "Save as Custom 1";
+  const currentLabel = CUSTOM_LABELS[state.selectedPresetId] || "Custom 1";
+  const saveLabel = `Save ${currentLabel}`;
   app.innerHTML = `
     <section class="screen config-screen">
       <div class="config-shell">
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V5.2.0 forest route training: fading cue sequences move the explorer forward or backward while A/B inputs are placed far apart.</p>
+            <p class="subtitle">V6.1 forest route training: fading cue sequences appear over the route while A/B inputs are placed far apart.</p>
           </div>
         </div>
 
         <div class="config-card preset-card">
           <div class="preset-card-header">
             <div>
-              <label>Presets</label>
-              <p class="card-help">Click a preset to load values into the editor below. Editing numbers never changes the defaults unless you save.</p>
+              <label>Settings</label>
+              <p class="card-help">Pick one custom settings set, edit values below, then save when you want to keep it.</p>
             </div>
-            <button id="savePresetBtn">${saveLabel}</button>
+            <div class="preset-actions">
+              <button id="restorePresetBtn" type="button">Restore Defaults</button>
+              <button id="savePresetBtn" type="button">${saveLabel}</button>
+            </div>
           </div>
           <div class="preset-row">
             ${Object.entries(allPresets())
@@ -1611,12 +1627,11 @@ function renderConfig() {
 
         <div class="current-preset">
           <div class="panel-header">
-            <h2>Current Preset</h2>
-            <span>${allPresets()[state.selectedPresetId]?.label || "Custom"}</span>
+            <h2>Current Settings</h2>
+            <span>${currentLabel}</span>
           </div>
           <div class="preset-sections">
             ${settingsSection("Timing", "Cue timing, response windows, and audio prompts.", `
-              ${adaptiveStartPreview(s)}
               ${toggleField("adaptiveResponseEnabled", "Adaptive window", s.adaptiveResponseEnabled)}
               ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 1, 10, 1)}
               ${numberField("adaptiveDecreasePercent", "Decrease %", s.adaptiveDecreasePercent, 0, 50, 1)}
@@ -1672,6 +1687,7 @@ function renderConfig() {
         <div class="actions">
           <p class="safety">Make sure the floor is clear. Place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals, so each cue creates real movement.</p>
           <div class="action-buttons">
+            <button id="historyBtn" type="button">History</button>
             <button class="primary" id="startBtn">Start Training</button>
           </div>
         </div>
@@ -1694,7 +1710,9 @@ function renderConfig() {
     updateSoundSetting("soundVolume", event.target.value);
   });
   document.getElementById("soundTestBtn").addEventListener("click", () => playSound("success"));
+  document.getElementById("restorePresetBtn").addEventListener("click", restoreCurrentDefaultPreset);
   document.getElementById("savePresetBtn").addEventListener("click", saveCurrentPreset);
+  document.getElementById("historyBtn").addEventListener("click", showHistory);
   document.getElementById("startBtn").addEventListener("click", startGame);
 }
 
@@ -1708,40 +1726,6 @@ function numberField(key, label, value, min, max, step) {
       <input id="${key}" data-setting="${key}" type="number" inputmode="numeric" min="${min}" max="${max}" step="${step}" value="${value}" />
     </div>
   `;
-}
-
-function adaptiveStartPreview(settings) {
-  const preview = getAdaptiveStartValues(settings, state.selectedPresetId);
-  const modeLabel = settings.adaptiveResponseEnabled ? `Adaptive ${preview.multiplier.toFixed(2)}x` : "Adaptive Off";
-  return `
-    <div class="config-card adaptive-preview">
-      <div class="field-label-row">
-        <label>Next run start</label>
-      </div>
-      <div class="adaptive-preview-values">
-        <div>
-          <span>Response</span>
-          <strong data-adaptive-preview="responseWindow">${preview.responseWindow}ms</strong>
-        </div>
-        <div>
-          <span>Bonus / key</span>
-          <strong data-adaptive-preview="firstResponseKeyBonusMs">${preview.firstResponseKeyBonusMs}ms</strong>
-        </div>
-      </div>
-      <p data-adaptive-preview="mode">${modeLabel}</p>
-    </div>
-  `;
-}
-
-function updateAdaptivePreviewDom() {
-  const responseTarget = document.querySelector('[data-adaptive-preview="responseWindow"]');
-  const bonusTarget = document.querySelector('[data-adaptive-preview="firstResponseKeyBonusMs"]');
-  const modeTarget = document.querySelector('[data-adaptive-preview="mode"]');
-  if (!responseTarget || !bonusTarget || !modeTarget) return;
-  const preview = getAdaptiveStartValues(cleanPreset(state.settings), state.selectedPresetId);
-  responseTarget.textContent = `${preview.responseWindow}ms`;
-  bonusTarget.textContent = `${preview.firstResponseKeyBonusMs}ms`;
-  modeTarget.textContent = state.settings.adaptiveResponseEnabled ? `Adaptive ${preview.multiplier.toFixed(2)}x` : "Adaptive Off";
 }
 
 function settingsSection(title, description, fields) {
@@ -1807,11 +1791,10 @@ function renderGame() {
   const rule = getCurrentRule();
   app.innerHTML = `
     <section class="screen game-screen rule-${rule}">
-      ${renderHud()}
-      <div class="playfield">
-        ${renderBoard()}
-        ${renderStimulus()}
-      </div>
+      ${renderBoard()}
+      ${renderCueOverlay()}
+      ${renderResponseTimer()}
+      <div class="game-message message-bar ${state.messageTone}">${state.message}</div>
       ${state.isPaused ? renderPauseOverlay() : ""}
     </section>
   `;
@@ -1827,43 +1810,6 @@ function renderPauseOverlay() {
       </div>
     </div>
   `;
-}
-
-function renderHud() {
-  return `
-    <header class="hud">
-      ${hudItem("Position", `${state.boardPosition + 1}/${state.boardCells.length}`)}
-      ${hudItem("Score", state.score)}
-      ${hudItem("Combo", state.combo)}
-      ${hudItem("Rule", ruleLabel(getCurrentRule()))}
-      ${hudItem("Phase", phaseLabel())}
-    </header>
-  `;
-}
-
-function hudItem(label, value) {
-  return `
-    <div class="hud-item">
-      <div class="hud-label">${label}</div>
-      <div class="hud-value">${value}</div>
-    </div>
-  `;
-}
-
-function phaseLabel() {
-  if (state.isPaused) return "Paused";
-  const labels = {
-    waiting: "Ready",
-    rightStimulus: "Respond",
-  };
-  return labels[state.phase] || "Ready";
-}
-
-function ruleLabel(rule) {
-  if (rule === "reverse") return "Reverse";
-  if (rule === "nback1") return "1-back";
-  if (rule === "finish") return "Finish";
-  return "Normal";
 }
 
 function renderBoard() {
@@ -1884,10 +1830,6 @@ function renderBoard() {
     .join("");
   return `
     <section class="board-panel forest-board-panel">
-      <div class="panel-header">
-        <h2>Forest Route</h2>
-        <span>${state.boardPosition + 1}/${state.boardCells.length} spaces | Page ${page.currentPage}/${page.totalPages}</span>
-      </div>
       <div class="forest-stage">
         <div class="forest-canopy canopy-a"></div>
         <div class="forest-canopy canopy-b"></div>
@@ -1897,7 +1839,6 @@ function renderBoard() {
         </svg>
         <div class="forest-map">${cells}</div>
       </div>
-      <div class="message-bar ${state.messageTone}">${state.message}</div>
     </section>
   `;
 }
@@ -1966,39 +1907,30 @@ function renderPlayer() {
   return `<div class="trail-player ${state.playerStepping ? `step-${state.stepDirection}` : ""}"><span></span></div>`;
 }
 
-function renderStimulus() {
+function renderCueOverlay() {
   const stimulus = state.currentStimulus;
-  const isActive = state.phase === "rightStimulus";
-  const displayed = isActive && stimulus ? stimulus.displayedInstruction : null;
-  const displayedKeys = displayed ? instructionDisplayKeys(displayed) : [];
-  const light = displayed?.light || "green";
-  const targetContent = getTargetContent();
-  const stepLabel = getStimulusStepLabel(stimulus);
-  const showActiveKeys = isActive && stimulus?.targetVisible;
-  const panelStatus = isActive ? "Respond before the bar fills" : "Waiting for next cue";
-  const trafficText = isActive ? (light === "red" ? "NO-GO" : "GO") : "READY";
-  const trafficClass = isActive ? (light === "red" ? "red" : "go") : "ready";
-  const targetClass = isActive ? `active-target ${stimulus.targetVisible ? "" : "hidden-target"}` : "wait";
+  if (state.phase !== "rightStimulus" || !stimulus || !stimulus.targetVisible) return "";
+  const light = stimulus.displayedInstruction.light;
+  const cueText = light === "red" ? "NO-GO" : "GO";
+  const cueClass = light === "red" ? "nogo" : "go";
   return `
-    <section class="stimulus-panel">
-      <div class="panel-header">
-        <h2>Go / No-Go</h2>
-        <span>${panelStatus}</span>
-      </div>
-      <div class="stimulus-main">
-        <div class="traffic ${trafficClass}">${trafficText}</div>
-        <div class="target-key ${targetClass}">${targetContent}</div>
-        <div class="sequence-progress">${stepLabel}</div>
+    <aside class="cue-overlay ${cueClass}" aria-live="assertive">
+      <div class="cue-card">
+        <div class="cue-light">${cueText}</div>
+        <div class="cue-target">${getTargetContent()}</div>
+        <div class="sequence-progress">${getStimulusStepLabel(stimulus)}</div>
         <div class="poison-note">${ruleNote(stimulus)}</div>
-        <div class="timer"><div class="timer-fill" style="width:${state.timerPercent}%"></div></div>
       </div>
-      <div class="controls-strip">
-        ${getConfiguredInputs().map(
-          (input) =>
-            `<div class="key-chip ${showActiveKeys && displayedKeys.includes(input.id) ? "active" : ""}">${slotVisual(input.id)}</div>`,
-        ).join("")}
-      </div>
-    </section>
+    </aside>
+  `;
+}
+
+function renderResponseTimer() {
+  if (state.phase !== "rightStimulus" || !state.currentStimulus || state.currentStimulus.responded) return "";
+  return `
+    <div class="response-timer timer" aria-hidden="true">
+      <div class="timer-fill" style="width:${state.timerPercent}%"></div>
+    </div>
   `;
 }
 
@@ -2051,6 +1983,7 @@ function renderSummary() {
           ${metricCard("Hit rate", `${metrics.hitRate}%`)}
           ${metricCard("No-go errors", metrics.noGoErrors)}
           ${metricCard("Avg RT", `${metrics.avgRt}ms`)}
+          ${metricCard("Final window", `${metrics.finalResponseWindow}ms`)}
           ${metricCard("Reverse errors", metrics.reverseErrors)}
           ${metricCard("1-back errors", metrics.nbackErrors)}
         </div>
@@ -2062,6 +1995,76 @@ function renderSummary() {
     </section>
   `;
   document.getElementById("restartBtn").addEventListener("click", restart);
+}
+
+function renderHistory() {
+  const metrics = getHistoryMetrics();
+  app.innerHTML = `
+    <section class="screen summary-screen history-screen">
+      <div class="summary-shell">
+        <div>
+          <h1>History</h1>
+          <p class="subtitle">Recent local training sessions saved in this browser.</p>
+        </div>
+        <div class="summary-grid">
+          ${metricCard("Sessions", metrics.sessions)}
+          ${metricCard("Completed", metrics.completed)}
+          ${metricCard("Avg hit rate", `${metrics.avgHitRate}%`)}
+          ${metricCard("Avg RT", `${metrics.avgRt}ms`)}
+          ${metricCard("Best hit rate", `${metrics.bestHitRate}%`)}
+        </div>
+        ${renderHistoryList()}
+        <div class="actions">
+          <p class="safety">History is stored only in this browser's local storage.</p>
+          <div class="action-buttons">
+            <button id="clearHistoryBtn" type="button">Clear History</button>
+            <button class="primary" id="backToSettingsBtn" type="button">Back to Settings</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+  document.getElementById("backToSettingsBtn").addEventListener("click", backToConfig);
+  document.getElementById("clearHistoryBtn").addEventListener("click", clearSessionHistory);
+}
+
+function renderHistoryList() {
+  if (!state.sessionHistory.length) {
+    return `<div class="history-empty">No sessions yet.</div>`;
+  }
+  return `
+    <div class="history-list">
+      ${state.sessionHistory.map((entry) => `
+        <article class="history-item">
+          <div>
+            <strong>${formatHistoryDate(entry.endedAt)}</strong>
+            <span>${entry.presetLabel || "Custom"} | ${formatSessionDuration(entry.durationMs || 0)} | ${entry.progress || "0/0"}</span>
+          </div>
+          <div class="history-stats">
+            <span>Hit ${entry.hitRate || 0}%</span>
+            <span>RT ${entry.avgRt || 0}ms</span>
+            <span>Window ${entry.finalResponseWindow || 0}ms</span>
+            <span>Errors ${historyErrorCount(entry)}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function historyErrorCount(entry) {
+  return (Number(entry.noGoErrors) || 0) + (Number(entry.reverseErrors) || 0) + (Number(entry.nbackErrors) || 0);
+}
+
+function formatHistoryDate(timestamp) {
+  if (!timestamp) return "Unknown time";
+  return new Date(timestamp).toLocaleString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function metricCard(label, value) {
@@ -2077,6 +2080,7 @@ function render() {
   if (state.screen === "config") renderConfig();
   if (state.screen === "game") renderGame();
   if (state.screen === "summary") renderSummary();
+  if (state.screen === "history") renderHistory();
 }
 
 window.addEventListener("keydown", (event) => {

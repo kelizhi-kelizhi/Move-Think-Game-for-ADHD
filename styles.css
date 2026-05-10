@@ -161,40 +161,6 @@ h1 {
   text-align: right;
 }
 
-.adaptive-preview {
-  display: grid;
-  gap: 10px;
-  background: #121923;
-}
-
-.adaptive-preview-values {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.adaptive-preview-values div {
-  min-width: 0;
-}
-
-.adaptive-preview-values span,
-.adaptive-preview p {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.adaptive-preview-values strong {
-  display: block;
-  margin-top: 3px;
-  font-size: 22px;
-  line-height: 1.1;
-}
-
-.adaptive-preview p {
-  margin: 0;
-  font-weight: 800;
-}
-
 .config-card label,
 .field label {
   display: block;
@@ -309,7 +275,15 @@ h1 {
   gap: 14px;
 }
 
-.preset-card-header button {
+.preset-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.preset-card-header button,
+.preset-actions button {
   min-width: 170px;
   padding: 12px 16px;
   border-color: var(--gold);
@@ -397,9 +371,10 @@ h1 {
 
 .game-screen {
   position: relative;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 16px;
+  display: block;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
   border: 8px solid transparent;
   transition: border-color 120ms ease;
   min-height: 100vh;
@@ -453,7 +428,7 @@ h1 {
 
 .board-panel {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr;
 }
 
 .panel-header {
@@ -694,6 +669,38 @@ h1 {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
+.cue-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.cue-card {
+  width: min(390px, calc(100vw - 72px));
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 14px 18px 12px;
+  text-align: center;
+}
+
+.cue-light {
+  min-width: 138px;
+  padding: 11px 16px;
+  font-size: clamp(30px, 4.2vw, 48px);
+  font-weight: 950;
+  line-height: 1;
+}
+
+.cue-target {
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+}
+
 .target-key.hidden-target .target-sequence {
   opacity: 0;
   transform: translateY(4px);
@@ -823,6 +830,57 @@ h1 {
   font-weight: 900;
 }
 
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-item,
+.history-empty {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.history-item strong,
+.history-item span {
+  display: block;
+}
+
+.history-item strong {
+  font-size: 16px;
+}
+
+.history-item span,
+.history-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.history-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.history-stats span {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #0d1117;
+  font-weight: 800;
+  text-align: center;
+}
+
 /* Pixel game theme */
 .game-screen {
   background:
@@ -839,6 +897,14 @@ h1 {
   border-radius: 0;
   background: #fff3c4;
   box-shadow: 6px 6px 0 #18132f;
+}
+
+.game-screen .board-panel {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .game-screen .hud-item {
@@ -1142,10 +1208,31 @@ h1 {
 }
 
 .game-screen .message-bar {
-  border-top: 4px solid #18132f;
+  border: 4px solid #18132f;
   color: #18132f;
   background: #fff8df;
+  box-shadow: 5px 5px 0 #18132f;
   font-weight: 800;
+}
+
+.game-screen .game-message {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+  z-index: 18;
+  min-height: auto;
+  padding: 10px 14px;
+  text-align: center;
+}
+
+.game-screen .response-timer {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 86px;
+  z-index: 18;
+  width: auto;
 }
 
 .game-screen .message-bar.good {
@@ -1228,6 +1315,65 @@ h1 {
   background: #2d2a72;
 }
 
+.game-screen .cue-card {
+  border: 5px solid #18132f;
+  background:
+    linear-gradient(180deg, #ffe07a 0 23%, #fff8df 23% 100%);
+  box-shadow: 7px 7px 0 #18132f;
+}
+
+.game-screen .cue-light {
+  border: 4px solid #18132f;
+  color: #102411;
+  background: #31d07c;
+  box-shadow: 4px 4px 0 #18132f;
+}
+
+.game-screen .cue-overlay.nogo .cue-light {
+  color: #32070c;
+  background: #ff4d5d;
+}
+
+.game-screen .cue-target .target-sequence .key-visual {
+  min-width: 2.25em;
+  min-height: 1.34em;
+  padding: 0.14em 0.28em;
+  border-width: 0.11em;
+  font-size: clamp(28px, 3.6vw, 42px);
+  font-weight: 950;
+  background: #ffcf54;
+  box-shadow: 3px 3px 0 #18132f;
+}
+
+.game-screen .cue-target .target-sequence .mouse-visual {
+  font-size: clamp(46px, 5.2vw, 62px);
+  background: #fff8df;
+  box-shadow: 3px 3px 0 #18132f;
+}
+
+.game-screen .cue-target .target-sequence-item {
+  min-width: 70px;
+  min-height: 58px;
+  padding: 2px;
+  border-color: transparent;
+}
+
+.game-screen .cue-target .target-sequence {
+  gap: 8px;
+}
+
+.game-screen .cue-card .sequence-progress {
+  min-height: 12px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.game-screen .cue-card .poison-note {
+  min-height: 0;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
 .game-screen .controls-strip {
   border-top: 4px solid #18132f;
   background: #ffcf54;
@@ -1258,11 +1404,13 @@ h1 {
 }
 
 .forest-board-panel {
-  grid-template-rows: auto minmax(420px, 1fr) auto;
+  grid-template-rows: 1fr;
+  height: 100%;
 }
 
 .forest-stage {
   position: relative;
+  height: 100%;
   min-height: 100%;
   padding: 18px;
   background:
@@ -1316,12 +1464,12 @@ h1 {
 .route-svg,
 .forest-map {
   position: absolute;
-  top: 32px;
-  right: 28px;
-  bottom: 42px;
-  left: 28px;
-  width: calc(100% - 56px);
-  height: calc(100% - 74px);
+  top: 40px;
+  right: 48px;
+  bottom: 92px;
+  left: 48px;
+  width: calc(100% - 96px);
+  height: calc(100% - 132px);
   z-index: 2;
 }
 
@@ -1507,6 +1655,29 @@ h1 {
   .playfield {
     grid-template-columns: 1fr;
   }
+
+  .game-screen {
+    min-height: 100vh;
+  }
+
+  .route-svg,
+  .forest-map {
+    right: 28px;
+    left: 28px;
+    width: calc(100% - 56px);
+  }
+
+  .game-screen .game-message {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .game-screen .response-timer {
+    left: 14px;
+    right: 14px;
+    bottom: 76px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1556,6 +1727,8 @@ h1 {
   }
 
   .preset-card-header button,
+  .preset-actions,
+  .preset-actions button,
   .action-buttons,
   .action-buttons button,
   .sound-controls {
@@ -1563,6 +1736,10 @@ h1 {
   }
 
   .sound-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .history-item {
     grid-template-columns: 1fr;
   }
 }

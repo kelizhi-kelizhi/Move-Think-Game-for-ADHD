@@ -1,12 +1,24 @@
-# Move & Think ADHD Training Game
+# Move & Think ADHD Game
 
 This is a zero-dependency local web prototype. Open `index.html` in a browser to run it.
 
+This project is a personal/experimental game prototype for movement-based cognitive practice.
+
+It is loosely inspired by research on integrated cognitive-motor exercise for ADHD, such as:
+
+[Integrated cognitive-motor exercise for core symptoms and executive functions in children with attention deficit hyperactivity disorder: a randomized clinical trial](https://doi.org/10.1007/s12519-026-01019-4)
+
+The published study involved a specific clinical protocol, participant group, supervision, training schedule, and outcome assessment. This game is only a simplified, home-playable prototype inspired by some general design ideas, such as combining physical movement with cognitive challenges.
+
+This project is not a medical device and is not intended to diagnose, treat, cure, or prevent ADHD or any other medical condition. It does not guarantee improvements in attention, executive function, ADHD symptoms, or health outcomes.
+
+If you have ADHD or other health concerns, please consult a qualified professional.
+
 ## Current Rules
 
-- V5.2.0 uses a forest route board with a static route event plan generated before each run.
-- The right side shows abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V5.2.0 lets you configure two input groups. Each group contains two active keys.
+- V6.1 uses a forest route board with a static route event plan generated before each run.
+- During a run, a central pixel cue shows GO / NO-GO and abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
+- V6.1 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
 - By default, group A is `Left Shift` / `Right Shift`, and group B is mouse left / mouse right.
 - `AB alternation` controls how strongly the next cue switches groups. At `0`, all four active keys are fully random. At `1`, the next cue always switches to the other group.
@@ -22,7 +34,9 @@ This is a zero-dependency local web prototype. Open `index.html` in a browser to
 - GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
 - The first response window in each route space can be extended by a configured amount per displayed key. The default is `50ms` per key, and `0` disables the extra time.
 - Adaptive response mode uses an N-up / 1-down rule. Complete green GO spaces in a row shrink both the base response window and the first-window bonus. One error grows both values. Correct NO-GO spaces do not count toward the streak, but false alarms count as errors.
-- When adaptive response mode is on, each preset keeps its own saved multiplier. The next run starts from the last adaptive window used with that preset.
+- When adaptive response mode is on, each run starts from the configured response window and adjusts only within that run.
+- The summary screen shows the final response window after the last adaptive update.
+- Completed sessions are saved to local browser history and can be viewed from the settings screen.
 - NO-GO sequences require no input for one response window, regardless of sequence length.
 - The session ends when the explorer reaches the finish space.
 - Purple route spaces are reverse zones: green cues use the matching slot in the other input group, so A1 maps to B1 and A2 maps to B2.
@@ -40,6 +54,9 @@ GO / NO-GO inputs:
 
 ## Settings
 
+- `Custom 1` / `Custom 2` / `Custom 3`: saved setting slots stored in the browser. `Save` writes the current editor values to the selected slot.
+- `Restore Defaults`: reloads the selected slot's default values into the editor without overwriting saved browser values unless you press `Save`.
+- `defaults.js`: external default settings source. Edit `window.MOVE_THINK_DEFAULT_PRESET` to change the defaults used by `Restore Defaults` and first-time startup.
 - `Cue interval ms`: minimum delay after the previous cue is resolved before the next cue appears.
 - `Random jitter ms`: extra random delay added to the cue interval. For example, `1500` plus `500` means the next cue appears after `1500-2000ms`.
 - `Delay block size`: number of consecutive route spaces that share one generated cue delay. For example, `10` means spaces 1-10 share one delay, spaces 11-20 share another, and so on.
