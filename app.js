@@ -915,6 +915,7 @@ function startGame() {
   state.sessionEndedAt = 0;
   state.sessionHistorySaved = false;
   setMessage("Ready... wait for the target cue.", "");
+  scheduleViewportSync();
   render();
   scheduleStimulus();
 }
@@ -2182,7 +2183,20 @@ function metricCard(label, value) {
   `;
 }
 
+function syncViewportHeight() {
+  const height = Math.max(1, Math.round(window.visualViewport?.height || window.innerHeight || 0));
+  document.documentElement.style.setProperty("--app-height", `${height}px`);
+}
+
+function scheduleViewportSync() {
+  syncViewportHeight();
+  requestAnimationFrame(syncViewportHeight);
+  [80, 180, 360, 720].forEach((delay) => window.setTimeout(syncViewportHeight, delay));
+}
+
 function render() {
+  syncViewportHeight();
+  document.body.classList.toggle("game-active", state.screen === "game");
   if (state.screen === "config") renderConfig();
   if (state.screen === "game") renderGame();
   if (state.screen === "summary") renderSummary();
@@ -2229,7 +2243,15 @@ document.addEventListener("pointerlockchange", () => {
 });
 
 document.addEventListener("fullscreenchange", () => {
+  scheduleViewportSync();
   if (!document.fullscreenElement && state.screen === "game") exitGame();
 });
+
+window.addEventListener("resize", scheduleViewportSync);
+window.addEventListener("orientationchange", scheduleViewportSync);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", scheduleViewportSync);
+  window.visualViewport.addEventListener("scroll", scheduleViewportSync);
+}
 
 render();

@@ -1,5 +1,6 @@
 :root {
   color-scheme: dark;
+  --app-height: 100vh;
   --bg: #101319;
   --panel: #181d26;
   --panel-2: #202733;
@@ -21,6 +22,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: var(--app-height);
   background: var(--bg);
   color: var(--text);
   font-family:
@@ -28,6 +30,26 @@ body {
     sans-serif;
   letter-spacing: 0;
   overflow: auto;
+}
+
+body.game-active {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: var(--app-height);
+  min-height: var(--app-height);
+  overflow: hidden;
+}
+
+#app {
+  min-height: 100vh;
+  min-height: var(--app-height);
+}
+
+body.game-active #app {
+  height: var(--app-height);
+  min-height: var(--app-height);
+  overflow: hidden;
 }
 
 button,
@@ -375,11 +397,13 @@ h1 {
   padding: 0;
   height: 100vh;
   height: 100dvh;
+  height: var(--app-height);
   overflow: hidden;
   border: 8px solid transparent;
   transition: border-color 120ms ease;
   min-height: 100vh;
   min-height: 100dvh;
+  min-height: var(--app-height);
   cursor: none;
 }
 
