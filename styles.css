@@ -374,10 +374,12 @@ h1 {
   display: block;
   padding: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   border: 8px solid transparent;
   transition: border-color 120ms ease;
   min-height: 100vh;
+  min-height: 100dvh;
   cursor: none;
 }
 
@@ -1699,7 +1701,10 @@ h1 {
   }
 
   .game-screen {
-    min-height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+    border-width: 5px;
   }
 
   .route-svg,
@@ -1732,21 +1737,136 @@ h1 {
 }
 
 @media (max-width: 680px) {
+  .game-screen {
+    border-width: 4px;
+  }
+
+  .forest-stage {
+    padding: 8px;
+  }
+
+  .forest-stage::before {
+    height: 38%;
+  }
+
+  .forest-canopy {
+    width: 58px;
+    height: 44px;
+    border-width: 3px;
+  }
+
+  .canopy-a {
+    top: 24px;
+    left: 18px;
+  }
+
+  .canopy-b {
+    top: 42px;
+    right: 26px;
+  }
+
+  .canopy-c {
+    right: 18%;
+    bottom: 84px;
+  }
+
+  .route-svg,
+  .forest-map {
+    top: 22px;
+    right: 18px;
+    bottom: 126px;
+    left: 18px;
+    width: calc(100% - 36px);
+    height: calc(100% - 148px);
+  }
+
+  .trail-cell {
+    width: clamp(30px, 9vw, 42px);
+    height: clamp(30px, 9vw, 42px);
+    border-width: 3px;
+    box-shadow:
+      inset -3px -3px 0 rgba(0, 0, 0, 0.18),
+      3px 3px 0 #18132f;
+  }
+
+  .trail-index {
+    top: 2px;
+    left: 3px;
+    font-size: 7px;
+  }
+
+  .trail-label {
+    font-size: 10px;
+  }
+
+  .trail-player {
+    width: 20px;
+    height: 22px;
+  }
+
   .game-screen .game-hud {
-    justify-content: flex-start;
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    max-height: 94px;
+    justify-content: center;
+    align-content: flex-end;
+    gap: 5px;
+    overflow: hidden;
   }
 
   .game-screen .response-timer {
-    bottom: 154px;
+    left: 8px;
+    right: 8px;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 102px);
+    height: 12px;
+    border-width: 3px;
+  }
+
+  .game-screen .hud-chip {
+    min-height: 30px;
+    gap: 5px;
+    padding: 4px 6px;
+    border-width: 3px;
+    box-shadow: 3px 3px 0 #18132f;
+  }
+
+  .game-screen .hud-chip strong {
+    font-size: 14px;
+  }
+
+  .game-screen .hud-chip .hud-label {
+    font-size: 9px;
+  }
+
+  .game-screen .lives-chip {
+    flex: 1 1 100%;
+    justify-content: center;
+    max-width: 100%;
   }
 
   .game-screen .life-track {
-    max-width: calc(100vw - 96px);
+    max-width: calc(100vw - 78px);
+    gap: 3px;
+    justify-content: center;
   }
 
   .game-screen .life-heart {
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
+    border-width: 1px;
+    box-shadow: 1px 1px 0 #18132f;
+  }
+
+  .game-screen .cue-card {
+    width: min(330px, calc(100vw - 32px));
+    padding: 10px 12px 9px;
+  }
+
+  .game-screen .cue-light {
+    min-width: 112px;
+    padding: 8px 12px;
+    font-size: 30px;
   }
 }
 
