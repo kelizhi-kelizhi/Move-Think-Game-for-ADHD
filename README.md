@@ -18,9 +18,9 @@ If you have ADHD or other health concerns, please consult a qualified profession
 
 ## Current Rules
 
-- V7 uses map mode: generate a saved forest route map first, then select that map for later training runs.
+- V7.2 uses map mode: generate a saved forest route map first, then select that map for later training runs.
 - During a run, a central pixel cue shows GO / NO-GO and abstract input slots such as `A1`, `B1`, `A2`, and `B2` instead of physical key names. Target slots fade out after the configured visible time.
-- V7 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
+- V7.2 lets you edit and save three custom settings sets. Defaults can be changed in `defaults.js`.
 - Saved maps are stored locally in the browser. Each map contains route spaces, special zones, GO / NO-GO cues, abstract slot sequences, and per-space cue delays.
 - Map settings affect newly generated maps. Run settings such as response window, lives, adaptive mode, audio, delay color strength, and physical input bindings can be changed before replaying the same map.
 - The training is designed around physical movement: place group A and group B inputs far apart, such as a distant keyboard/mouse pair or two separated foot pedals.
@@ -40,6 +40,7 @@ If you have ADHD or other health concerns, please consult a qualified profession
 - GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
 - The first response window in each route space can be extended by a configured amount per displayed key. The default is `50ms` per key, and `0` disables the extra time.
 - Adaptive response mode uses an N-up / 1-down rule. Complete green GO spaces in a row shrink both the base response window and the first-window bonus. One error grows both values. Correct NO-GO spaces do not count toward the streak, but false alarms count as errors.
+- `Adaptive cue interval` can optionally apply the same adaptive multiplier to the saved map cue interval during a run. It is off by default, so saved cue delays normally replay unchanged.
 - When adaptive response mode is on, each run starts from the configured response window and adjusts only within that run.
 - The game HUD shows the current page, route progress, and optional pixel-heart lives. The old bottom instruction message is hidden during play.
 - The summary screen shows the final response window and the page reached.
@@ -77,6 +78,7 @@ GO / NO-GO inputs:
 - `Response window ms`: time allowed for each GO key step, or the one NO-GO window.
 - `First window bonus / key ms`: extra time added to the first response window in each route space for every displayed key. Later GO sequence steps use `Response window ms` without this bonus.
 - `Adaptive window`: whether the game automatically scales `Response window ms` and `First window bonus / key ms`.
+- `Adaptive cue interval`: whether `Adaptive window` also scales the selected map's saved cue interval during a run. This setting is off by default.
 - `Correct streak to decrease`: number of complete green GO successes needed before the adaptive values shrink.
 - `Decrease %`: percentage shrink applied after a correct streak.
 - `Increase %`: percentage growth applied after one error.

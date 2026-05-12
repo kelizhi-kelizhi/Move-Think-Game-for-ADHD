@@ -51,7 +51,7 @@ const HISTORY_STORAGE_KEY = "moveThinkSessionHistoryV1";
 const CUSTOM_IDS = ["custom1", "custom2", "custom3"];
 const MAX_HISTORY_ENTRIES = 100;
 const MAX_SAVED_MAPS = 50;
-const MAP_VERSION = 7;
+const MAP_VERSION = 7.2;
 const DEFAULT_DELAY_COLOR_STRENGTH = 0.45;
 const DEFAULT_CUE_VISIBLE_MS = 750;
 const DEFAULT_SOUND_VOLUME = 0.28;
@@ -85,6 +85,7 @@ const FALLBACK_PRESET = {
   responseWindow: 1500,
   firstResponseKeyBonusMs: DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
   adaptiveResponseEnabled: false,
+  adaptiveCueIntervalEnabled: false,
   adaptiveCorrectStreakTarget: DEFAULT_ADAPTIVE_STREAK_TARGET,
   adaptiveDecreasePercent: DEFAULT_ADAPTIVE_DECREASE_PERCENT,
   adaptiveIncreasePercent: DEFAULT_ADAPTIVE_INCREASE_PERCENT,
@@ -123,6 +124,7 @@ const SETTING_HELP = {
   responseWindow: "How long the player has to respond after a GO / NO-GO cue appears.",
   firstResponseKeyBonusMs: "Extra time added to the first response window in each route space for every displayed key. Set to 0 to disable.",
   adaptiveResponseEnabled: "When on, the game adjusts response window and first-window bonus after each successful GO streak or error.",
+  adaptiveCueIntervalEnabled: "When on with Adaptive window, the saved map cue interval is also multiplied by the current adaptive multiplier.",
   adaptiveCorrectStreakTarget: "Number of complete green GO successes needed before the adaptive window decreases.",
   adaptiveDecreasePercent: "Percentage used to shrink the adaptive response window and first-window bonus after a correct streak.",
   adaptiveIncreasePercent: "Percentage used to grow the adaptive response window and first-window bonus after one error.",
@@ -244,6 +246,7 @@ function cleanPreset(preset) {
       DEFAULT_FIRST_RESPONSE_KEY_BONUS_MS,
     ),
     adaptiveResponseEnabled: preset.adaptiveResponseEnabled === true,
+    adaptiveCueIntervalEnabled: preset.adaptiveCueIntervalEnabled === true,
     adaptiveCorrectStreakTarget: Math.round(
       clampNumber(preset.adaptiveCorrectStreakTarget, 1, 10, DEFAULT_ADAPTIVE_STREAK_TARGET),
     ),
@@ -629,6 +632,15 @@ function getScaledResponseWindow(settings = state.settings, multiplier = 1) {
 
 function getScaledFirstResponseKeyBonus(settings = state.settings, multiplier = 1) {
   return Math.round(Math.max(0, settings.firstResponseKeyBonusMs * multiplier));
+}
+
+function getAdaptiveCueMultiplier(settings = state.settings) {
+  return settings.adaptiveResponseEnabled && settings.adaptiveCueIntervalEnabled ? state.adaptiveMultiplier : 1;
+}
+
+function getScaledCueInterval(delay, settings = state.settings) {
+  const baseDelay = Number.isFinite(Number(delay)) ? Number(delay) : settings.baseInterval;
+  return Math.max(250, Math.round(baseDelay * getAdaptiveCueMultiplier(settings)));
 }
 
 function clearTimers() {
@@ -1228,6 +1240,7 @@ function updateSetting(key, value) {
   if (
     key === "slotVoiceEnabled" ||
     key === "adaptiveResponseEnabled" ||
+    key === "adaptiveCueIntervalEnabled" ||
     key === "distinctNoGoToneEnabled" ||
     key === "livesEnabled"
   ) {
@@ -1543,6 +1556,7 @@ function showStimulus() {
       displayedInstruction: cloneInstruction(routeCell.displayedInstruction),
       requiredInstruction: cloneInstruction(routeCell.requiredInstruction),
       rule: routeCell.type,
+      delayMs: routeCell.delayMs,
       responded: false,
       stepIndex: 0,
       stepReactionTimes: [],
@@ -1749,7 +1763,7 @@ function getCurrentRouteCell(position = state.boardPosition) {
 
 function getCurrentDelay() {
   const delay = getCurrentRouteCell()?.delayMs ?? state.settings.baseInterval;
-  return Math.max(250, delay);
+  return getScaledCueInterval(delay);
 }
 
 function getRequiredInstruction(displayedInstruction, rule, previousDisplayedInstruction = null, settings = state.settings) {
@@ -1833,6 +1847,9 @@ function finishRightTrial({ input, result, success, reactionTime }) {
   const adaptiveMultiplier = state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1;
   const trialResponseWindow = getScaledResponseWindow(state.settings, adaptiveMultiplier);
   const trialFirstResponseKeyBonusMs = getScaledFirstResponseKeyBonus(state.settings, adaptiveMultiplier);
+  const trialCueIntervalMs = getScaledCueInterval(
+    stimulus.delayMs ?? getCurrentRouteCell(fromPosition)?.delayMs ?? state.settings.baseInterval,
+  );
   if (success && stimulus.requiredInstruction.light === "green" && Number.isFinite(reactionTime)) {
     reactionTimes.push(reactionTime);
   }
@@ -1871,6 +1888,7 @@ function finishRightTrial({ input, result, success, reactionTime }) {
     completedSteps: stimulus.requiredInstruction.light === "green" ? reactionTimes.length : 0,
     responseWindow: trialResponseWindow,
     firstResponseKeyBonusMs: trialFirstResponseKeyBonusMs,
+    cueIntervalMs: trialCueIntervalMs,
     adaptiveMultiplier: Number(adaptiveMultiplier.toFixed(4)),
     livesRemaining: state.settings.livesEnabled ? state.lives : null,
     result,
@@ -2044,6 +2062,7 @@ function recordSessionHistory() {
     trials: state.trials.length,
     routeSpaces: state.boardCells.length,
     adaptiveResponseEnabled: state.settings.adaptiveResponseEnabled,
+    adaptiveCueIntervalEnabled: state.settings.adaptiveCueIntervalEnabled,
   };
   state.sessionHistory = [entry, ...state.sessionHistory].slice(0, MAX_HISTORY_ENTRIES);
   state.sessionHistorySaved = true;
@@ -2168,7 +2187,7 @@ function renderConfig() {
         <div class="title-row">
           <div>
             <h1>Move & Think</h1>
-            <p class="subtitle">V7 map mode: generate a saved route map, then replay it with the current run settings.</p>
+            <p class="subtitle">V7.2 map mode: generate a saved route map, then replay it with the current run settings.</p>
           </div>
         </div>
 
@@ -2230,6 +2249,7 @@ function renderConfig() {
           <div class="preset-sections">
             ${settingsSection("Timing", "Response windows and audio prompts can change between runs.", `
               ${toggleField("adaptiveResponseEnabled", "Adaptive window", s.adaptiveResponseEnabled)}
+              ${toggleField("adaptiveCueIntervalEnabled", "Adaptive cue interval", s.adaptiveCueIntervalEnabled)}
               ${numberField("adaptiveCorrectStreakTarget", "Correct streak to decrease", s.adaptiveCorrectStreakTarget, 1, 10, 1)}
               ${numberField("adaptiveDecreasePercent", "Decrease %", s.adaptiveDecreasePercent, 0, 50, 1)}
               ${numberField("adaptiveIncreasePercent", "Increase %", s.adaptiveIncreasePercent, 0, 50, 1)}

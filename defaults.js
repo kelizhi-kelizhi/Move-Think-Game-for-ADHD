@@ -7,6 +7,7 @@ window.MOVE_THINK_DEFAULT_PRESET = {
   responseWindow: 1500,
   firstResponseKeyBonusMs: 50,
   adaptiveResponseEnabled: true,
+  adaptiveCueIntervalEnabled: false,
   adaptiveCorrectStreakTarget: 2,
   adaptiveDecreasePercent: 1,
   adaptiveIncreasePercent: 5,
