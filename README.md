@@ -49,15 +49,17 @@ If you have ADHD or other health concerns, please consult a qualified profession
 - Purple route spaces are reverse zones: green cues use the matching slot in the other input group, so A1 maps to B1 and A2 maps to B2.
 - Blue route spaces are 1-back zones: while standing on that space, perform the previous route space's generated cue sequence, including both GO and NO-GO.
 - 1-back only applies while standing on a 1-back space. Leaving the zone restores normal current-cue rules.
-- Starting a run requests fullscreen plus pointer lock and hides the cursor; press `Space` to pause or resume, and press `Esc` to exit the run and return to settings.
+- Starting a run requests fullscreen plus pointer lock and hides the cursor; press the configured pause key, `Space` by default, to pause or resume, and press `Esc` to exit the run and return to settings.
 - Setting labels include hover/focus help for what each value changes.
 
 ## Inputs
 
 GO / NO-GO inputs:
-- The four keys selected in the Input Groups settings.
+- The four recorded inputs selected in the Input Groups settings.
 - Input group slots can be left empty, but each group needs at least one key and at least one A/B matching slot pair.
-- Available choices are left/right Shift, left/right Ctrl, left/right Alt, mouse left, and mouse right.
+- Click an input setting, then press a keyboard key or mouse button to record it.
+- Each recorded input shows its internal `ID:` value. Copy that value into `defaults.js` when changing default bindings.
+- Recording an input that is already assigned marks the duplicated settings red; choose a different input before starting. Clear can leave the setup temporarily incomplete; assign a valid A/B pair before starting.
 
 ## Settings
 
@@ -83,6 +85,7 @@ GO / NO-GO inputs:
 - `Distinct NO-GO tone`: whether NO-GO cue start tones use 500Hz for stronger contrast from GO cues.
 - `Lives`: whether errors remove lives and the run ends when no lives remain.
 - `Max lives`: number of lives at run start when `Lives` is enabled. It can be set from `1` to `50`.
+- `Pause key`: input used to pause or resume a run. It cannot be one of the active input group inputs, and defaults to `Space`.
 - `Sequence start page`: first page where sequence length grows beyond one key.
 - `Sequence page step`: number of pages between each sequence length increase.
 - `Max sequence length`: cap on keys in one route-space sequence.
@@ -92,7 +95,7 @@ GO / NO-GO inputs:
 - `Reverse zones`: number of purple reverse segments on the route. Reverse uses group-slot mapping, not physical left/right mapping.
 - `1-back zones`: number of blue 1-back segments on the route.
 - `AB alternation`: value from `0` to `1`. If the previous displayed key was in group A, the next generated key chooses group B with probability `0.5 + 0.5 * AB alternation`; the same formula applies in reverse. Multi-key sequences apply this continuously across keys and across route spaces.
-- `Input Groups`: non-overlapping key choices split into group A and group B. Empty slots are allowed; A1/B1 and A2/B2 are the reverse pairs.
+- `Input Groups`: non-overlapping recorded inputs split into group A and group B. Empty slots are allowed; A1/B1 and A2/B2 are the reverse pairs.
 
 Before training, make sure the space around the player is clear. Put group A and group B far enough apart that switching groups requires a deliberate body movement.
 

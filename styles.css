@@ -279,6 +279,51 @@ h1 {
   background: #0d1117;
 }
 
+.capture-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.capture-button,
+.capture-clear {
+  min-height: 42px;
+  padding: 10px 11px;
+  text-align: left;
+  background: #0d1117;
+}
+
+.capture-button {
+  width: 100%;
+}
+
+.capture-clear {
+  color: var(--muted);
+}
+
+.capture-id {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.capture-field.capturing .capture-button {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.capture-field.duplicate .capture-button {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.capture-field.duplicate .capture-id {
+  color: var(--bad);
+}
+
 .preset-card label,
 .sound-card > label {
   margin-bottom: 8px;

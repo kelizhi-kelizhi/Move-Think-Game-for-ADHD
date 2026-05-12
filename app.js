@@ -11,14 +11,31 @@ const INPUT_OPTIONS = [
   { id: "mouseRight", label: "Mouse R", button: 2, side: "right", pair: "mouseLeft" },
 ];
 
+const PAUSE_KEY_OPTIONS = [
+  { id: "space", label: "Space", code: "Space" },
+  { id: "keyP", label: "P", code: "KeyP" },
+  { id: "enter", label: "Enter", code: "Enter" },
+  ...INPUT_OPTIONS.filter((input) => input.code),
+];
+const DEFAULT_PAUSE_KEY = "space";
+const KEY_INPUT_PREFIX = "key:";
+const MOUSE_INPUT_PREFIX = "mouse:";
+const CAPTURE_CANCEL_CODE = "Escape";
+
+const INPUT_SETTING_LABELS = {
+  groupAKey1: "Group A key 1",
+  groupAKey2: "Group A key 2",
+  groupBKey1: "Group B key 1",
+  groupBKey2: "Group B key 2",
+  pauseKey: "Pause key",
+};
+
 const DEFAULT_INPUT_GROUPS = {
   groupAKey1: "leftShift",
   groupAKey2: "",
   groupBKey1: "mouseLeft",
   groupBKey2: "",
 };
-
-const EMPTY_INPUT_OPTION = { id: "", label: "Empty" };
 
 const MAX_PATH_LENGTH = 1000;
 const DEFAULT_ROUTE_PAGE_SIZE = 42;
@@ -88,6 +105,7 @@ const FALLBACK_PRESET = {
   nbackZones: 1,
   abAlternation: 0,
   ...DEFAULT_INPUT_GROUPS,
+  pauseKey: DEFAULT_PAUSE_KEY,
 };
 
 const CUSTOM_LABELS = {
@@ -127,6 +145,7 @@ const SETTING_HELP = {
   groupAKey2: "Optional second input assigned to group A. In reverse zones, this maps to group B key 2.",
   groupBKey1: "First input assigned to group B. In reverse zones, this maps to group A key 1.",
   groupBKey2: "Optional second input assigned to group B. In reverse zones, this maps to group A key 2.",
+  pauseKey: "Input used to pause or resume a run. It cannot be one of the active input group inputs.",
 };
 
 const savedSoundSettings = loadSoundSettings();
@@ -184,6 +203,7 @@ const state = {
   adaptiveCorrectStreak: 0,
   sessionStartedAt: 0,
   sessionEndedAt: 0,
+  capturingSetting: null,
   timers: new Set(),
   raf: null,
 };
@@ -259,6 +279,7 @@ function cleanPreset(preset) {
     groupAKey2: preset.groupAKey2,
     groupBKey1: preset.groupBKey1,
     groupBKey2: preset.groupBKey2,
+    pauseKey: preset.pauseKey,
   };
   cleaned.cueVisibleMs = clampNumber(
     preset.cueVisibleMs,
@@ -266,7 +287,8 @@ function cleanPreset(preset) {
     Math.max(100, cleaned.responseWindow - 50),
     Math.min(DEFAULT_CUE_VISIBLE_MS, Math.max(100, cleaned.responseWindow - 50)),
   );
-  return { ...cleaned, ...cleanInputGroups(cleaned) };
+  const inputGroups = cleanInputGroups(cleaned);
+  return { ...cleaned, ...inputGroups, pauseKey: cleanPauseKey(cleaned.pauseKey) };
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -277,28 +299,21 @@ function clampNumber(value, min, max, fallback) {
 
 function cleanInputGroups(settings) {
   const keys = ["groupAKey1", "groupAKey2", "groupBKey1", "groupBKey2"];
-  const ids = keys.map((key) => settings[key]);
-  const validIds = new Set(INPUT_OPTIONS.map((input) => input.id));
-  const filledIds = ids.filter(Boolean);
-  const uniqueIds = new Set(filledIds);
-  const hasGroupA = Boolean(settings.groupAKey1 || settings.groupAKey2);
-  const hasGroupB = Boolean(settings.groupBKey1 || settings.groupBKey2);
-  const hasReversePair = Boolean(
-    (settings.groupAKey1 && settings.groupBKey1) || (settings.groupAKey2 && settings.groupBKey2),
-  );
-  if (
-    filledIds.length !== uniqueIds.size ||
-    filledIds.some((id) => !validIds.has(id)) ||
-    !hasGroupA ||
-    !hasGroupB ||
-    !hasReversePair
-  ) {
-    return { ...DEFAULT_INPUT_GROUPS };
-  }
   return keys.reduce((groups, key) => {
-    groups[key] = settings[key] || "";
+    const id = settings[key] || "";
+    if (!id || !getInputDefinition(id) || !inputSignature(id)) {
+      groups[key] = "";
+      return groups;
+    }
+    groups[key] = id;
     return groups;
   }, {});
+}
+
+function cleanPauseKey(pauseKey) {
+  const pauseInput = getPauseInput(pauseKey);
+  if (!pauseInput) return DEFAULT_PAUSE_KEY;
+  return pauseKey;
 }
 
 function getDefaultPresetValues() {
@@ -891,8 +906,102 @@ function reverseInput(input, settings = state.settings) {
   return null;
 }
 
+function keyboardInputId(code) {
+  const fixedInput = INPUT_OPTIONS.find((input) => input.code === code);
+  const fixedPauseInput = PAUSE_KEY_OPTIONS.find((input) => input.code === code);
+  return fixedInput?.id || fixedPauseInput?.id || `${KEY_INPUT_PREFIX}${code}`;
+}
+
+function mouseInputId(button) {
+  const fixedInput = INPUT_OPTIONS.find((input) => input.button === button);
+  return fixedInput?.id || `${MOUSE_INPUT_PREFIX}${button}`;
+}
+
+function getInputDefinition(id) {
+  if (!id) return null;
+  const fixedInput = INPUT_OPTIONS.find((input) => input.id === id);
+  if (fixedInput) return fixedInput;
+  const fixedKeyboardInput = PAUSE_KEY_OPTIONS.find((input) => input.id === id);
+  if (fixedKeyboardInput) return fixedKeyboardInput;
+  if (id.startsWith(KEY_INPUT_PREFIX)) {
+    const code = id.slice(KEY_INPUT_PREFIX.length);
+    if (!isCapturableKeyboardCode(code)) return null;
+    return { id, label: keyboardCodeLabel(code), code };
+  }
+  if (id.startsWith(MOUSE_INPUT_PREFIX)) {
+    const button = Number(id.slice(MOUSE_INPUT_PREFIX.length));
+    if (!Number.isInteger(button) || button < 0 || button > 4) return null;
+    return { id, label: mouseButtonLabel(button), button };
+  }
+  return null;
+}
+
+function getPauseInput(id = state.settings.pauseKey) {
+  if (!id) return null;
+  const fixedPauseInput = PAUSE_KEY_OPTIONS.find((input) => input.id === id);
+  return fixedPauseInput || getInputDefinition(id);
+}
+
+function inputSignature(id) {
+  const input = getPauseInput(id) || getInputDefinition(id);
+  if (!input) return "";
+  if (input.code) return `${KEY_INPUT_PREFIX}${input.code}`;
+  if (Number.isInteger(input.button)) return `${MOUSE_INPUT_PREFIX}${input.button}`;
+  return "";
+}
+
+function isCapturableKeyboardCode(code) {
+  return Boolean(code && code !== CAPTURE_CANCEL_CODE);
+}
+
+function keyboardCodeLabel(code) {
+  const fixedInput = INPUT_OPTIONS.find((input) => input.code === code);
+  if (fixedInput) return fixedInput.label;
+  const fixedPauseInput = PAUSE_KEY_OPTIONS.find((input) => input.code === code);
+  if (fixedPauseInput) return fixedPauseInput.label;
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit\d$/.test(code)) return code.slice(5);
+  if (/^Numpad\d$/.test(code)) return `Num ${code.slice(6)}`;
+  const labels = {
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    Backspace: "Backspace",
+    Tab: "Tab",
+    CapsLock: "Caps Lock",
+    Minus: "-",
+    Equal: "=",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Backslash: "\\",
+    Semicolon: ";",
+    Quote: "'",
+    Backquote: "`",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+  };
+  return labels[code] || code.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function mouseButtonLabel(button) {
+  const labels = {
+    0: "Mouse L",
+    1: "Mouse M",
+    2: "Mouse R",
+    3: "Mouse Back",
+    4: "Mouse Forward",
+  };
+  return labels[button] || `Mouse ${button}`;
+}
+
 function inputLabel(id) {
-  return INPUT_OPTIONS.find((item) => item.id === id)?.label || "";
+  return getInputDefinition(id)?.label || "";
+}
+
+function pauseKeyLabel(id = state.settings.pauseKey) {
+  return getPauseInput(id)?.label || "Space";
 }
 
 function inputSequenceLabel(ids) {
@@ -900,8 +1009,9 @@ function inputSequenceLabel(ids) {
 }
 
 function inputVisual(id) {
-  if (id === "mouseLeft" || id === "mouseRight") {
-    const side = id === "mouseLeft" ? "left" : "right";
+  const input = getInputDefinition(id);
+  if (input?.button === 0 || input?.button === 2) {
+    const side = input.button === 2 ? "right" : "left";
     return `
       <span class="input-visual mouse-visual mouse-${side}" role="img" aria-label="${side} mouse button">
         <span class="mouse-button mouse-button-left"></span>
@@ -966,7 +1076,7 @@ function getConfiguredInputIds(settings = state.settings) {
 
 function getConfiguredInputs(settings = state.settings) {
   const ids = getConfiguredInputIds(settings);
-  return ids.map((id) => INPUT_OPTIONS.find((input) => input.id === id)).filter(Boolean);
+  return ids.map(getInputDefinition).filter(Boolean);
 }
 
 function inputGroup(id, settings = state.settings) {
@@ -997,6 +1107,8 @@ function getMapRequiredSlots(map) {
 }
 
 function validateMapForRun(map, settings = state.settings) {
+  const inputValidation = validateInputSettings(settings);
+  if (!inputValidation.ok) return inputValidation;
   if (!map) return { ok: false, message: "Generate or select a map before starting." };
   const missingSlots = getMapRequiredSlots(map).filter((slot) => !slotToInputId(slot, settings));
   if (missingSlots.length) {
@@ -1005,6 +1117,41 @@ function validateMapForRun(map, settings = state.settings) {
       message: `Selected map needs ${missingSlots.join(", ")}. Assign those input slots before starting.`,
     };
   }
+  return { ok: true, message: "" };
+}
+
+function validateInputSettings(settings = state.settings) {
+  const groupKeys = ["groupAKey1", "groupAKey2", "groupBKey1", "groupBKey2"];
+  const inputEntries = groupKeys.map((key) => [key, settings[key]]).filter(([, value]) => Boolean(value));
+  const invalidInput = inputEntries.find(([, value]) => !getInputDefinition(value));
+  if (invalidInput) {
+    return { ok: false, message: `${INPUT_SETTING_LABELS[invalidInput[0]]} is not a supported input.` };
+  }
+
+  const signatures = inputEntries.map(([, value]) => inputSignature(value));
+  if (signatures.length !== new Set(signatures).size) {
+    return { ok: false, message: "Input groups cannot use the same physical input twice." };
+  }
+
+  const hasGroupA = Boolean(settings.groupAKey1 || settings.groupAKey2);
+  const hasGroupB = Boolean(settings.groupBKey1 || settings.groupBKey2);
+  if (!hasGroupA || !hasGroupB) {
+    return { ok: false, message: "Assign at least one input in both group A and group B before starting." };
+  }
+
+  const hasReversePair = Boolean(
+    (settings.groupAKey1 && settings.groupBKey1) || (settings.groupAKey2 && settings.groupBKey2),
+  );
+  if (!hasReversePair) {
+    return { ok: false, message: "Assign at least one matching A/B pair before starting." };
+  }
+
+  const pauseInput = getPauseInput(settings.pauseKey);
+  if (!pauseInput) return { ok: false, message: "Assign a pause input before starting." };
+  if (signatures.includes(inputSignature(settings.pauseKey))) {
+    return { ok: false, message: "Pause input cannot duplicate an input group control." };
+  }
+
   return { ok: true, message: "" };
 }
 
@@ -1066,6 +1213,12 @@ function selectPreset(presetId) {
 }
 
 function updateSetting(key, value) {
+  if (key === "pauseKey") {
+    state.settings[key] = value;
+    state.settings = cleanPreset(state.settings);
+    render();
+    return;
+  }
   if (key.startsWith("group")) {
     state.settings[key] = value;
     state.settings = cleanPreset(state.settings);
@@ -1090,6 +1243,60 @@ function updateSetting(key, value) {
     return;
   }
   state.settings[key] = Number(value);
+}
+
+function startInputCapture(key) {
+  state.capturingSetting = key;
+  setMessage(`Press a key or mouse button for ${INPUT_SETTING_LABELS[key]}. Press Esc to cancel.`, "");
+  render();
+}
+
+function cancelInputCapture() {
+  if (!state.capturingSetting) return;
+  state.capturingSetting = null;
+  setMessage("Input capture canceled.", "");
+  render();
+}
+
+function applyCapturedInput(key, inputId) {
+  const input = key === "pauseKey" ? getPauseInput(inputId) : getInputDefinition(inputId);
+  if (!input) {
+    state.capturingSetting = null;
+    setMessage("That input cannot be assigned.", "bad");
+    render();
+    return;
+  }
+  const conflictLabel = findInputConflictLabel(inputId, key);
+  state.settings = cleanPreset({ ...state.settings, [key]: inputId });
+  state.capturingSetting = null;
+  setMessage(
+    conflictLabel
+      ? `${input.label} is also assigned to ${conflictLabel}. Choose a different input before starting.`
+      : `${INPUT_SETTING_LABELS[key]} set to ${input.label}.`,
+    conflictLabel ? "bad" : "good",
+  );
+  render();
+}
+
+function clearInputSetting(key) {
+  if (key === "pauseKey") return;
+  const nextSettings = { ...state.settings, [key]: "" };
+  state.settings = cleanPreset(nextSettings);
+  setMessage(`${INPUT_SETTING_LABELS[key]} cleared. Assign any missing pair before starting.`, "");
+  render();
+}
+
+function findInputConflictLabel(inputId, targetKey) {
+  const targetSignature = inputSignature(inputId);
+  const entries = [
+    ["groupAKey1", state.settings.groupAKey1],
+    ["groupAKey2", state.settings.groupAKey2],
+    ["groupBKey1", state.settings.groupBKey1],
+    ["groupBKey2", state.settings.groupBKey2],
+    ["pauseKey", state.settings.pauseKey],
+  ];
+  const conflict = entries.find(([key, value]) => key !== targetKey && value && inputSignature(value) === targetSignature);
+  return conflict ? INPUT_SETTING_LABELS[conflict[0]] : "";
 }
 
 function syncRouteSettingLimits() {
@@ -1139,6 +1346,7 @@ function initializeAdaptiveSession() {
 
 function startGame() {
   clearTimers();
+  state.capturingSetting = null;
   state.settings = cleanPreset(state.settings);
   const selectedMap = getSelectedMap();
   const validation = validateMapForRun(selectedMap, state.settings);
@@ -2036,6 +2244,9 @@ function renderConfig() {
               ${toggleField("livesEnabled", "Lives", s.livesEnabled)}
               ${numberField("maxLives", "Max lives", s.maxLives, 1, MAX_LIVES, 1)}
             `)}
+            ${settingsSection("Controls", "Pause and resume control for the current run.", `
+              ${inputCaptureField("pauseKey", "Pause key", s.pauseKey)}
+            `)}
           </div>
         </div>
 
@@ -2045,10 +2256,10 @@ function renderConfig() {
             <span>Place A and B inputs far apart; reverse maps A1/B1 and A2/B2</span>
           </div>
           <div class="config-grid">
-            ${selectField("groupAKey1", "Group A key 1", s.groupAKey1)}
-            ${selectField("groupAKey2", "Group A key 2", s.groupAKey2)}
-            ${selectField("groupBKey1", "Group B key 1", s.groupBKey1)}
-            ${selectField("groupBKey2", "Group B key 2", s.groupBKey2)}
+            ${inputCaptureField("groupAKey1", "Group A key 1", s.groupAKey1)}
+            ${inputCaptureField("groupAKey2", "Group A key 2", s.groupAKey2)}
+            ${inputCaptureField("groupBKey1", "Group B key 1", s.groupBKey1)}
+            ${inputCaptureField("groupBKey2", "Group B key 2", s.groupBKey2)}
           </div>
         </div>
 
@@ -2078,6 +2289,12 @@ function renderConfig() {
     const listener = () => updateSetting(input.dataset.setting, input.value);
     input.addEventListener("input", listener);
     input.addEventListener("change", listener);
+  });
+  document.querySelectorAll("[data-capture-setting]").forEach((button) => {
+    button.addEventListener("click", () => startInputCapture(button.dataset.captureSetting));
+  });
+  document.querySelectorAll("[data-clear-setting]").forEach((button) => {
+    button.addEventListener("click", () => clearInputSetting(button.dataset.clearSetting));
   });
   document.getElementById("soundToggle").addEventListener("click", () => {
     updateSoundSetting("soundEnabled", !state.soundEnabled);
@@ -2171,23 +2388,42 @@ function settingsSection(title, description, fields) {
   `;
 }
 
-function selectField(key, label, value) {
-  const selectedIds = new Set(getConfiguredInputIds().filter((id) => id && id !== value));
-  const options = [EMPTY_INPUT_OPTION, ...INPUT_OPTIONS];
+function inputCaptureField(key, label, value) {
+  const isCapturing = state.capturingSetting === key;
+  const isDuplicate = isDuplicateInputSetting(key);
+  const inputLabelText = key === "pauseKey" ? pauseKeyLabel(value) : inputLabel(value);
+  const buttonText = isCapturing ? "Press key/button..." : inputLabelText || "Empty";
+  const idText = value || "empty";
+  const canClear = key !== "pauseKey" && Boolean(value);
   return `
-    <div class="config-card field">
+    <div class="config-card field capture-field ${isCapturing ? "capturing" : ""} ${isDuplicate ? "duplicate" : ""}">
       <div class="field-label-row">
         <label for="${key}">${label}</label>
         ${fieldHelp(key)}
       </div>
-      <select id="${key}" data-setting="${key}">
-        ${options.map(
-          (input) =>
-            `<option value="${input.id}" ${input.id === value ? "selected" : ""} ${selectedIds.has(input.id) ? "disabled" : ""}>${input.label}</option>`,
-        ).join("")}
-      </select>
+      <div class="capture-control">
+        <button id="${key}" type="button" class="capture-button" data-capture-setting="${key}">
+          ${escapeHtml(buttonText)}
+        </button>
+        ${canClear ? `<button type="button" class="capture-clear" data-clear-setting="${key}" aria-label="Clear ${label}">Clear</button>` : ""}
+      </div>
+      <span class="capture-id">ID: ${escapeHtml(idText)}</span>
     </div>
   `;
+}
+
+function isDuplicateInputSetting(key) {
+  const value = state.settings[key];
+  const signature = inputSignature(value);
+  if (!signature) return false;
+  const entries = [
+    ["groupAKey1", state.settings.groupAKey1],
+    ["groupAKey2", state.settings.groupAKey2],
+    ["groupBKey1", state.settings.groupBKey1],
+    ["groupBKey2", state.settings.groupBKey2],
+    ["pauseKey", state.settings.pauseKey],
+  ];
+  return entries.some(([otherKey, otherValue]) => otherKey !== key && inputSignature(otherValue) === signature);
 }
 
 function toggleField(key, label, value) {
@@ -2267,7 +2503,7 @@ function renderPauseOverlay() {
     <div class="pause-overlay" role="status" aria-live="polite">
       <div class="pause-modal">
         <span>PAUSED</span>
-        <strong>Press Space to continue</strong>
+        <strong>Press ${pauseKeyLabel()} to continue</strong>
       </div>
     </div>
   `;
@@ -2569,17 +2805,27 @@ function render() {
 }
 
 window.addEventListener("keydown", (event) => {
+  if (state.capturingSetting) {
+    event.preventDefault();
+    if (event.code === CAPTURE_CANCEL_CODE) {
+      cancelInputCapture();
+      return;
+    }
+    if (!event.repeat) applyCapturedInput(state.capturingSetting, keyboardInputId(event.code));
+    return;
+  }
   if (event.repeat) return;
   if (event.code === "Escape" && state.screen === "game") {
     event.preventDefault();
     exitGame();
     return;
   }
-  if (event.code === "Space" && state.screen === "game") {
+  if (state.screen === "game" && event.code === getPauseInput()?.code) {
     event.preventDefault();
     togglePause();
     return;
   }
+  if (state.screen !== "game") return;
   const match = getConfiguredInputs().find((input) => input.code === event.code);
   if (!match) return;
   event.preventDefault();
@@ -2587,7 +2833,17 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("mousedown", (event) => {
+  if (state.capturingSetting) {
+    event.preventDefault();
+    applyCapturedInput(state.capturingSetting, mouseInputId(event.button));
+    return;
+  }
   if (state.screen !== "game") return;
+  if (getPauseInput()?.button === event.button) {
+    event.preventDefault();
+    togglePause();
+    return;
+  }
   const match = getConfiguredInputs().find((input) => input.button === event.button);
   if (!match) return;
   event.preventDefault();
@@ -2595,7 +2851,7 @@ window.addEventListener("mousedown", (event) => {
 });
 
 window.addEventListener("contextmenu", (event) => {
-  if (state.screen === "game") event.preventDefault();
+  if (state.screen === "game" || state.capturingSetting) event.preventDefault();
 });
 
 document.addEventListener("pointerlockchange", () => {
