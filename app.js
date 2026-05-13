@@ -1639,12 +1639,24 @@ function startResponseTimer(stimulusId, delay) {
   }, Math.max(0, delay));
 }
 
-function getResponseWindowForStep(stimulus, stepIndex = 0) {
-  const multiplier = state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1;
+function getResponseWindowForStepAtMultiplier(stimulus, stepIndex = 0, multiplier = 1) {
   const baseWindow = getScaledResponseWindow(state.settings, multiplier);
   if (!stimulus || stepIndex !== 0) return baseWindow;
   const displayedKeyCount = Math.max(1, instructionDisplayKeys(stimulus.displayedInstruction).length);
   return baseWindow + getScaledFirstResponseKeyBonus(state.settings, multiplier) * displayedKeyCount;
+}
+
+function getResponseWindowForStep(stimulus, stepIndex = 0) {
+  const multiplier = state.settings.adaptiveResponseEnabled ? state.adaptiveMultiplier : 1;
+  return getResponseWindowForStepAtMultiplier(stimulus, stepIndex, multiplier);
+}
+
+function getResponseTimerScale(stimulus = state.currentStimulus) {
+  if (!state.settings.adaptiveResponseEnabled || !stimulus) return 1;
+  const stepIndex = stimulus.stepIndex || 0;
+  const baseDuration = getResponseWindowForStepAtMultiplier(stimulus, stepIndex, 1);
+  const currentDuration = getResponseWindowForStep(stimulus, stepIndex);
+  return Math.max(0.01, currentDuration / Math.max(1, baseDuration));
 }
 
 function startCueVisibilityTimer(stimulusId, delay) {
@@ -2644,8 +2656,9 @@ function renderCueOverlay() {
 
 function renderResponseTimer() {
   if (state.phase !== "rightStimulus" || !state.currentStimulus || state.currentStimulus.responded) return "";
+  const timerScale = getResponseTimerScale(state.currentStimulus);
   return `
-    <div class="response-timer timer" aria-hidden="true">
+    <div class="response-timer timer" style="--response-timer-scale:${timerScale}" aria-hidden="true">
       <div class="timer-fill" style="width:${state.timerPercent}%"></div>
     </div>
   `;

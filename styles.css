@@ -1370,10 +1370,12 @@ h1 {
 .game-screen .response-timer {
   position: absolute;
   left: 24px;
-  right: 24px;
+  right: auto;
   bottom: 104px;
   z-index: 18;
-  width: auto;
+  width: calc(100% - 48px);
+  transform: scaleX(var(--response-timer-scale, 1));
+  transform-origin: left center;
 }
 
 .game-screen .hud-chip {
@@ -1866,8 +1868,9 @@ h1 {
 
   .game-screen .response-timer {
     left: 14px;
-    right: 14px;
+    right: auto;
     bottom: 122px;
+    width: calc(100% - 28px);
   }
 
   .game-screen .hud-chip {
@@ -1961,8 +1964,9 @@ h1 {
 
   .game-screen .response-timer {
     left: 8px;
-    right: 8px;
+    right: auto;
     bottom: calc(max(42px, env(safe-area-inset-bottom) + 34px) + 106px);
+    width: calc(100% - 16px);
     height: 12px;
     border-width: 3px;
   }
@@ -2101,8 +2105,9 @@ h1 {
 
   .game-screen .response-timer {
     left: 8px;
-    right: 8px;
+    right: auto;
     bottom: calc(max(30px, env(safe-area-inset-bottom) + 24px) + 82px);
+    width: calc(100% - 16px);
     height: 10px;
     border-width: 3px;
   }
