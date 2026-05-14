@@ -1378,6 +1378,18 @@ h1 {
   transform-origin: left center;
 }
 
+.game-screen .response-timer-live {
+  z-index: 19;
+}
+
+.game-screen .response-timer-ghost {
+  z-index: 18;
+  pointer-events: none;
+  animation:
+    timer-ghost-rise var(--timer-ghost-duration, 1200ms) cubic-bezier(0.18, 0.88, 0.24, 1) var(--timer-ghost-delay, 0ms) forwards,
+    timer-ghost-fade var(--timer-ghost-duration, 1200ms) cubic-bezier(0.45, 0, 0.8, 0.35) var(--timer-ghost-delay, 0ms) forwards;
+}
+
 .game-screen .hud-chip {
   min-height: 44px;
   display: flex;
@@ -1503,6 +1515,45 @@ h1 {
 
 .game-screen .timer-fill {
   background: #2d2a72;
+}
+
+.game-screen .timer-ghost-success {
+  border-color: #145c3f;
+  background: #e7ffea;
+}
+
+.game-screen .timer-ghost-success .timer-fill {
+  background: #1f9d63;
+}
+
+.game-screen .timer-ghost-error {
+  border-color: #8f1226;
+  background: #ffe2e7;
+}
+
+.game-screen .timer-ghost-error .timer-fill {
+  background: #d7263d;
+}
+
+@keyframes timer-ghost-rise {
+  0% {
+    transform: translateY(0) scaleX(var(--response-timer-scale, 1));
+  }
+  100% {
+    transform: translateY(-46px) scaleX(var(--response-timer-scale, 1));
+  }
+}
+
+@keyframes timer-ghost-fade {
+  0% {
+    opacity: 0.95;
+  }
+  65% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .game-screen .cue-card {

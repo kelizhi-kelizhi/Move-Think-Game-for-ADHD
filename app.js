@@ -68,6 +68,8 @@ const DEFAULT_MAX_LIVES = 10;
 const MAX_LIVES = 50;
 const SLOT_VOICE_DELAY_MS = 50;
 const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
+const TIMER_GHOST_DURATION_MS = 1200;
+const MAX_TIMER_GHOSTS = 3;
 const SLOT_IDS = ["A1", "A2", "B1", "B2"];
 const SLOT_AUDIO_PATHS = {
   A1: "assets/audio/a1.mp3",
@@ -195,6 +197,7 @@ const state = {
   timerStartedAt: 0,
   timerDuration: 0,
   timerPercent: 0,
+  timerGhosts: [],
   message: "Pick a preset, adjust the current values, then start.",
   messageTone: "",
   trials: [],
@@ -653,6 +656,7 @@ function clearTimers() {
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   if (state.raf) cancelAnimationFrame(state.raf);
   state.raf = null;
+  state.timerGhosts = [];
 }
 
 function clearCueTimer() {
@@ -1840,13 +1844,34 @@ function startVisualTimer(duration, elapsed = 0) {
 }
 
 function updateTimerDom() {
-  const fill = document.querySelector(".timer-fill");
+  const fill = document.querySelector(".response-timer-live .timer-fill");
   if (fill) fill.style.width = `${state.timerPercent}%`;
+}
+
+function addTimerGhost(kind, stimulus = state.currentStimulus, reactionTime = null) {
+  if (!stimulus) return;
+  const stepIndex = stimulus.stepIndex || 0;
+  const responseWindow = getResponseWindowForStep(stimulus, stepIndex);
+  const elapsed = Number.isFinite(reactionTime) ? reactionTime : performance.now() - state.stimulusStartedAt;
+  const percent = Math.min(100, Math.max(0, (elapsed / Math.max(1, responseWindow)) * 100));
+  const ghost = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    percent,
+    scale: getResponseTimerScale(stimulus),
+    kind: kind === "error" ? "error" : "success",
+    createdAt: performance.now(),
+  };
+  state.timerGhosts = [...state.timerGhosts.slice(-(MAX_TIMER_GHOSTS - 1)), ghost];
+  setTimer(() => {
+    state.timerGhosts = state.timerGhosts.filter((item) => item.id !== ghost.id);
+    if (state.screen === "game") render();
+  }, TIMER_GHOST_DURATION_MS);
 }
 
 function finishRightTrial({ input, result, success, reactionTime }) {
   const stimulus = state.currentStimulus;
   if (!stimulus || stimulus.responded) return;
+  addTimerGhost(success ? "success" : "error", stimulus, reactionTime);
   stopSlotAudio();
   clearResponseTimer();
   clearCueVisibilityTimer();
@@ -2019,6 +2044,7 @@ function handleRightInput(input) {
     return;
   }
   if (stepIndex < requiredKeys.length - 1) {
+    addTimerGhost("success", stimulus, reactionTime);
     stimulus.stepReactionTimes.push(reactionTime);
     playSound("success");
     clearCueVisibilityTimer();
@@ -2655,12 +2681,25 @@ function renderCueOverlay() {
 }
 
 function renderResponseTimer() {
-  if (state.phase !== "rightStimulus" || !state.currentStimulus || state.currentStimulus.responded) return "";
+  const now = performance.now();
+  const ghosts = state.timerGhosts
+    .map((ghost) => {
+      const age = Math.min(TIMER_GHOST_DURATION_MS, Math.max(0, now - ghost.createdAt));
+      return `
+        <div class="response-timer timer response-timer-ghost timer-ghost-${ghost.kind}" style="--response-timer-scale:${ghost.scale}; --timer-ghost-duration:${TIMER_GHOST_DURATION_MS}ms; --timer-ghost-delay:-${age}ms" aria-hidden="true">
+          <div class="timer-fill" style="width:${ghost.percent}%"></div>
+        </div>
+      `;
+    })
+    .join("");
+  const showLiveTimer = state.phase === "rightStimulus" && state.currentStimulus && !state.currentStimulus.responded;
+  if (!showLiveTimer) return ghosts;
   const timerScale = getResponseTimerScale(state.currentStimulus);
   return `
-    <div class="response-timer timer" style="--response-timer-scale:${timerScale}" aria-hidden="true">
+    <div class="response-timer timer response-timer-live" style="--response-timer-scale:${timerScale}" aria-hidden="true">
       <div class="timer-fill" style="width:${state.timerPercent}%"></div>
     </div>
+    ${ghosts}
   `;
 }
 

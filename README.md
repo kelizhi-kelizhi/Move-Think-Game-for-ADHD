@@ -39,6 +39,7 @@ If you have ADHD or other health concerns, please consult a qualified profession
 - When `Lives` is on, each wrong action, false alarm, or missed green GO cue removes one life. The session ends when lives reach zero.
 - GO sequences use one response window per key. Pressing the correct key starts a fresh response window for the next key; the explorer moves only after the full sequence is completed.
 - The first response window in each route space can be extended by a configured amount per displayed key. The default is `50ms` per key, and `0` disables the extra time.
+- When a response window resolves, the timer freezes at the resolved progress and rises while fading out. Successful windows use a green result trail, and failed windows use a red result trail.
 - Adaptive response mode uses an N-up / 1-down rule. Complete green GO spaces in a row shrink both the base response window and the first-window bonus. One error grows both values. Correct NO-GO spaces do not count toward the streak, but false alarms count as errors.
 - `Adaptive cue interval` can optionally apply the same adaptive multiplier to the saved map cue interval during a run. It is off by default, so saved cue delays normally replay unchanged.
 - When adaptive response mode is on, each run starts from the configured response window and adjusts only within that run.
