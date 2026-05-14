@@ -1652,9 +1652,9 @@ function getResponseWindowForStep(stimulus, stepIndex = 0) {
 }
 
 function getResponseTimerScale(stimulus = state.currentStimulus) {
-  if (!state.settings.adaptiveResponseEnabled || !stimulus) return 1;
+  if (!stimulus) return 1;
   const stepIndex = stimulus.stepIndex || 0;
-  const baseDuration = getResponseWindowForStepAtMultiplier(stimulus, stepIndex, 1);
+  const baseDuration = getScaledResponseWindow(state.settings, 1);
   const currentDuration = getResponseWindowForStep(stimulus, stepIndex);
   return Math.max(0.01, currentDuration / Math.max(1, baseDuration));
 }
