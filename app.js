@@ -69,6 +69,9 @@ const MAX_LIVES = 50;
 const SLOT_VOICE_DELAY_MS = 50;
 const SLOT_AUDIO_PLAYBACK_RATE = 1.5;
 const TIMER_GHOST_DURATION_MS = 1200;
+const TIMER_GHOST_BASE_RISE_PX = 46;
+const TIMER_GHOST_STEP_RISE_PX = 24;
+const TIMER_GHOST_MAX_EXTRA_RISE_PX = 72;
 const MAX_TIMER_GHOSTS = 3;
 const SLOT_IDS = ["A1", "A2", "B1", "B2"];
 const SLOT_AUDIO_PATHS = {
@@ -635,6 +638,11 @@ function getScaledResponseWindow(settings = state.settings, multiplier = 1) {
 
 function getScaledFirstResponseKeyBonus(settings = state.settings, multiplier = 1) {
   return Math.round(Math.max(0, settings.firstResponseKeyBonusMs * multiplier));
+}
+
+function getBaseResponseTimerDuration(settings = state.settings) {
+  const maxDisplayedKeyCount = Math.max(1, Math.round(settings.maxSequenceLength || 1));
+  return getScaledResponseWindow(settings, 1) + getScaledFirstResponseKeyBonus(settings, 1) * maxDisplayedKeyCount;
 }
 
 function getAdaptiveCueMultiplier(settings = state.settings) {
@@ -1658,7 +1666,7 @@ function getResponseWindowForStep(stimulus, stepIndex = 0) {
 function getResponseTimerScale(stimulus = state.currentStimulus) {
   if (!stimulus) return 1;
   const stepIndex = stimulus.stepIndex || 0;
-  const baseDuration = getScaledResponseWindow(state.settings, 1);
+  const baseDuration = getBaseResponseTimerDuration(state.settings);
   const currentDuration = getResponseWindowForStep(stimulus, stepIndex);
   return Math.max(0.01, currentDuration / Math.max(1, baseDuration));
 }
@@ -1848,6 +1856,14 @@ function updateTimerDom() {
   if (fill) fill.style.width = `${state.timerPercent}%`;
 }
 
+function getTimerGhostRiseDistance(stimulus, stepIndex = 0) {
+  const required = stimulus?.requiredInstruction;
+  const stepCount = required?.light === "green" ? Math.max(1, instructionEffectiveKeys(required).length) : 1;
+  const remainingSteps = Math.max(0, stepCount - stepIndex - 1);
+  const extraRise = Math.min(TIMER_GHOST_MAX_EXTRA_RISE_PX, remainingSteps * TIMER_GHOST_STEP_RISE_PX);
+  return TIMER_GHOST_BASE_RISE_PX + extraRise;
+}
+
 function addTimerGhost(kind, stimulus = state.currentStimulus, reactionTime = null) {
   if (!stimulus) return;
   const stepIndex = stimulus.stepIndex || 0;
@@ -1858,6 +1874,7 @@ function addTimerGhost(kind, stimulus = state.currentStimulus, reactionTime = nu
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     percent,
     scale: getResponseTimerScale(stimulus),
+    riseDistance: getTimerGhostRiseDistance(stimulus, stepIndex),
     kind: kind === "error" ? "error" : "success",
     createdAt: performance.now(),
   };
@@ -2685,8 +2702,9 @@ function renderResponseTimer() {
   const ghosts = state.timerGhosts
     .map((ghost) => {
       const age = Math.min(TIMER_GHOST_DURATION_MS, Math.max(0, now - ghost.createdAt));
+      const riseDistance = Number.isFinite(ghost.riseDistance) ? ghost.riseDistance : TIMER_GHOST_BASE_RISE_PX;
       return `
-        <div class="response-timer timer response-timer-ghost timer-ghost-${ghost.kind}" style="--response-timer-scale:${ghost.scale}; --timer-ghost-duration:${TIMER_GHOST_DURATION_MS}ms; --timer-ghost-delay:-${age}ms" aria-hidden="true">
+        <div class="response-timer timer response-timer-ghost timer-ghost-${ghost.kind}" style="--response-timer-scale:${ghost.scale}; --timer-ghost-rise:-${riseDistance}px; --timer-ghost-duration:${TIMER_GHOST_DURATION_MS}ms; --timer-ghost-delay:-${age}ms" aria-hidden="true">
           <div class="timer-fill" style="width:${ghost.percent}%"></div>
         </div>
       `;

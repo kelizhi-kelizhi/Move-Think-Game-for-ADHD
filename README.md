@@ -78,7 +78,7 @@ GO / NO-GO inputs:
 - `Delay color strength`: value from `0` to `1`. At `0`, wait time does not affect route space brightness. At `1`, short-wait spaces are lightest and long-wait spaces are darkest.
 - `Response window ms`: time allowed for each GO key step, or the one NO-GO window.
 - `First window bonus / key ms`: extra time added to the first response window in each route space for every displayed key. Later GO sequence steps use `Response window ms` without this bonus.
-- `Adaptive window`: whether the game automatically scales `Response window ms` and `First window bonus / key ms`. During play, the bottom response timer track scales with the current response window, including first-window key bonuses, so the fill advances at the same visual speed while covering a longer or shorter distance.
+- `Adaptive window`: whether the game automatically scales `Response window ms` and `First window bonus / key ms`. During play, the bottom response timer uses the longest first response window at adaptive multiplier `1` as its full-width baseline, based on `Max sequence length`, so later sequence windows do not push the normal timer width beyond the screen.
 - `Adaptive cue interval`: whether `Adaptive window` also scales the selected map's saved cue interval during a run. This setting is off by default.
 - `Correct streak to decrease`: number of complete green GO successes needed before the adaptive values shrink.
 - `Decrease %`: percentage shrink applied after a correct streak.
